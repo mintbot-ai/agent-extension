@@ -1,0 +1,64 @@
+{
+  "spec_version": "0.1",
+  "kind": "agent-extension",
+  "identity": {
+    "name": "graph-memory",
+    "version": "0.1.0",
+    "display_name": "Graph Memory",
+    "description": "Temporal knowledge-graph memory (Graphiti on FalkorDB) that replaces flat-file agent memory with a queryable, time-aware graph.",
+    "author": "mintbot",
+    "license": "MIT",
+    "homepage": "https://ext.example.com/graph-memory"
+  },
+  "provides": {
+    "services": [
+      { "name": "falkordb", "kind": "daemon", "summary": "FalkorDB graph store", "endpoint": "tcp://127.0.0.1:6379" }
+    ],
+    "memory": [
+      { "name": "graph", "kind": "graph", "summary": "temporal knowledge graph", "schema_ref": "schemas/graph.md" }
+    ],
+    "tools": [
+      { "name": "memory_write", "summary": "add a fact / edge to the graph", "input_schema_ref": "schemas/memory_write.json" },
+      { "name": "memory_query", "summary": "graph / temporal query over stored facts", "input_schema_ref": "schemas/memory_query.json" }
+    ],
+    "skills": [
+      { "name": "graph-memory", "summary": "how to store and query graph memory", "path": "skills/graph-memory/" }
+    ],
+    "config": {
+      "schema_ref": "schemas/config.schema.json",
+      "secrets": ["FALKOR_PASSWORD"]
+    }
+  },
+  "requires": {
+    "resources": { "disk_mb": 250, "ram_mb": 200 }
+  },
+  "permissions": {
+    "network_egress": [],
+    "filesystem": ["state:rw"],
+    "root": true,
+    "reason": "runs a local FalkorDB daemon under systemd; no external network egress"
+  },
+  "targets": [
+    {
+      "runtime": "hermes",
+      "runtime_version": ">= 2026.6",
+      "delivery": {
+        "method": "hermes-integration",
+        "install_url": "https://ext.example.com/graph-memory-hermes.tar.gz",
+        "install_sha256": "TBD-fill-at-publish-time",
+        "uninstall_command": "/opt/graph-memory/uninstall.sh"
+      },
+      "lifecycle": {
+        "install": "install.sh",
+        "upgrade": "upgrade.sh",
+        "uninstall": "uninstall.sh",
+        "health": "healthcheck.sh"
+      },
+      "component_map": {
+        "tools": "plugins/graph_memory/",
+        "skills": "skills/",
+        "services": "systemd:falkordb-graphmem.service"
+      }
+    }
+  ]
+}

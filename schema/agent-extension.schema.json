@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mintbot.ai/schema/agent-extension-0.1.json",
+  "title": "Agent Extension Protocol (AXP) manifest",
+  "description": "Draft v0.1. Runtime-neutral description of a packaged agent capability plus per-runtime install recipes.",
+  "type": "object",
+  "required": ["spec_version", "kind", "identity", "provides", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "spec_version": { "type": "string", "const": "0.1" },
+    "kind": { "type": "string", "const": "agent-extension" },
+    "identity": {
+      "type": "object",
+      "required": ["name", "version", "display_name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "maxLength": 64 },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].+)?$" },
+        "display_name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "author": { "type": "string" },
+        "license": { "type": "string" },
+        "homepage": { "type": "string", "format": "uri" }
+      }
+    },
+    "provides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "summary": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "summary": { "type": "string" },
+              "input_schema_ref": { "type": "string" }
+            }
+          }
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["daemon", "oneshot", "sidecar"] },
+              "summary": { "type": "string" },
+              "endpoint": { "type": "string" }
+            }
+          }
+        },
+        "memory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["graph", "vector", "kv", "relational"] },
+              "summary": { "type": "string" },
+              "schema_ref": { "type": "string" }
+            }
+          }
+        },
+        "cron": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "schedule"],
+            "properties": {
+              "name": { "type": "string" },
+              "schedule": { "type": "string" },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "persona": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fragment_ref"],
+            "properties": {
+              "fragment_ref": { "type": "string" }
+            }
+          }
+        },
+        "config": {
+          "type": "object",
+          "properties": {
+            "schema_ref": { "type": "string" },
+            "secrets": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extensions": { "type": "array", "items": { "type": "string" } },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "disk_mb": { "type": "integer", "minimum": 0 },
+            "ram_mb": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network_egress": { "type": "array", "items": { "type": "string" } },
+        "filesystem": { "type": "array", "items": { "type": "string" } },
+        "root": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["runtime", "delivery"],
+        "additionalProperties": false,
+        "properties": {
+          "runtime": { "type": "string" },
+          "runtime_version": { "type": "string" },
+          "delivery": {
+            "type": "object",
+            "required": ["method"],
+            "properties": {
+              "method": { "type": "string" }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "install": { "type": "string" },
+              "upgrade": { "type": "string" },
+              "uninstall": { "type": "string" },
+              "health": { "type": "string" }
+            }
+          },
+          "component_map": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

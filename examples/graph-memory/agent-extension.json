@@ -1,9 +1,9 @@
 {
-  "spec_version": "0.1",
+  "spec_version": "0.2",
   "kind": "agent-extension",
   "identity": {
     "name": "graph-memory",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "display_name": "Graph Memory",
     "description": "Temporal knowledge-graph memory (Graphiti on FalkorDB) that replaces flat-file agent memory with a queryable, time-aware graph.",
     "author": "mintbot",
@@ -24,6 +24,9 @@
     "skills": [
       { "name": "graph-memory", "summary": "how to store and query graph memory", "path": "skills/graph-memory/" }
     ],
+    "cron": [
+      { "name": "nightly-compaction", "schedule": "0 4 * * *", "summary": "prune and compact stale edges" }
+    ],
     "config": {
       "schema_ref": "schemas/config.schema.json",
       "secrets": ["FALKOR_PASSWORD"]
@@ -38,10 +41,32 @@
     "root": true,
     "reason": "runs a local FalkorDB daemon under systemd; no external network egress"
   },
+  "release": {
+    "channel": "stable",
+    "published_at": "2026-07-28T10:00:00Z",
+    "valid_until": "2026-08-27T10:00:00Z",
+    "changelog": "https://ext.example.com/graph-memory/CHANGELOG.md#0-2-0",
+    "artifact": {
+      "url": "https://ext.example.com/graph-memory-0.2.0.tar.gz",
+      "sha256": "TBD-fill-at-publish-time"
+    }
+  },
+  "updates": {
+    "source": { "kind": "github", "repo": "mintbot-ai/graph-memory" },
+    "check": "daily",
+    "policy": "auto"
+  },
+  "signing": {
+    "public_key": "ed25519:MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=",
+    "key_id": "graph-memory-2026",
+    "next_key": null
+  },
+  "signature": "REPLACE_WITH_BASE64_ED25519_SIGNATURE_OVER_CANONICAL_MANIFEST",
   "targets": [
     {
       "runtime": "hermes",
       "runtime_version": ">= 2026.6",
+      "enforcement": "declared",
       "delivery": {
         "method": "hermes-integration",
         "install_url": "https://ext.example.com/graph-memory-hermes.tar.gz",
@@ -55,9 +80,15 @@
         "health": "healthcheck.sh"
       },
       "component_map": {
-        "tools": "plugins/graph_memory/",
         "skills": "skills/",
-        "services": "systemd:falkordb-graphmem.service"
+        "tools": { "module": "plugins/graph_memory/", "register": "plugins/graph_memory/__init__.py" },
+        "services": {
+          "unit": "systemd:falkordb-graphmem.service",
+          "actions": ["daemon-reload", "enable", "start"],
+          "restart": "on-failure",
+          "health": "redis-cli -p 6379 ping"
+        },
+        "cron": { "unit": "systemd:graphmem-compaction.timer", "schedule": "0 4 * * *" }
       }
     }
   ]

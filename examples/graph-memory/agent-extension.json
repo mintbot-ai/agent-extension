@@ -1,77 +1,153 @@
 {
-  "spec_version": "0.2",
+  "spec_version": "0.3",
   "kind": "agent-extension",
   "identity": {
+    "publisher": "ext.example.com",
     "name": "graph-memory",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "display_name": "Graph Memory",
     "description": "Temporal knowledge-graph memory (Graphiti on FalkorDB) that replaces flat-file agent memory with a queryable, time-aware graph.",
-    "author": "mintbot",
+    "author": "Example Org",
     "license": "MIT",
-    "homepage": "https://ext.example.com/graph-memory"
+    "homepage": "https://ext.example.com/graph-memory",
+    "keywords": [
+      "memory",
+      "knowledge-graph",
+      "mcp"
+    ]
   },
   "provides": {
+    "mcp_servers": [
+      {
+        "name": "graph-memory",
+        "transport": "stdio",
+        "summary": "memory_write / memory_query over MCP",
+        "command_ref": "bin/graph-memory-mcp"
+      }
+    ],
     "services": [
-      { "name": "falkordb", "kind": "daemon", "summary": "FalkorDB graph store", "endpoint": "tcp://127.0.0.1:6379" }
+      {
+        "name": "falkordb",
+        "kind": "daemon",
+        "summary": "FalkorDB graph store",
+        "endpoint": "tcp://127.0.0.1:6379"
+      }
     ],
     "memory": [
-      { "name": "graph", "kind": "graph", "summary": "temporal knowledge graph", "schema_ref": "schemas/graph.md" }
+      {
+        "name": "graph",
+        "kind": "graph",
+        "summary": "temporal knowledge graph",
+        "schema_ref": "schemas/graph.md"
+      }
     ],
     "tools": [
-      { "name": "memory_write", "summary": "add a fact / edge to the graph", "input_schema_ref": "schemas/memory_write.json" },
-      { "name": "memory_query", "summary": "graph / temporal query over stored facts", "input_schema_ref": "schemas/memory_query.json" }
+      {
+        "name": "memory_write",
+        "summary": "add a fact / edge to the graph",
+        "input_schema_ref": "schemas/memory_write.json"
+      },
+      {
+        "name": "memory_query",
+        "summary": "graph / temporal query over stored facts",
+        "input_schema_ref": "schemas/memory_query.json"
+      }
     ],
     "skills": [
-      { "name": "graph-memory", "summary": "how to store and query graph memory", "path": "skills/graph-memory/" }
+      {
+        "name": "graph-memory",
+        "summary": "how to store and query graph memory",
+        "path": "skills/graph-memory/"
+      }
+    ],
+    "prompts": [
+      {
+        "name": "graph-memory",
+        "fragment_ref": "prompts/graph-memory.md"
+      }
     ],
     "cron": [
-      { "name": "nightly-compaction", "schedule": "0 4 * * *", "summary": "prune and compact stale edges" }
+      {
+        "name": "nightly-compaction",
+        "schedule": "0 4 * * *",
+        "summary": "prune and compact stale edges"
+      }
     ],
     "config": {
       "schema_ref": "schemas/config.schema.json",
-      "secrets": ["FALKOR_PASSWORD"]
+      "secrets": [
+        "FALKOR_PASSWORD"
+      ]
     }
   },
   "requires": {
-    "resources": { "disk_mb": 250, "ram_mb": 200 }
+    "resources": {
+      "disk_mb": 250,
+      "ram_mb": 200
+    },
+    "commands": [
+      "docker"
+    ]
   },
   "permissions": {
-    "network_egress": [],
-    "filesystem": ["state:rw"],
+    "network_egress": [
+      "registry-1.docker.io:443",
+      "auth.docker.io:443",
+      "production.cloudflare.docker.com:443"
+    ],
+    "network_ingress": [
+      "127.0.0.1:6379/tcp"
+    ],
+    "filesystem": [
+      "state:rw",
+      "system:rw"
+    ],
+    "secrets": [
+      "FALKOR_PASSWORD"
+    ],
     "root": true,
-    "reason": "runs a local FalkorDB daemon under systemd; no external network egress"
+    "reason": {
+      "root": "installs a systemd unit and a docker container for FalkorDB",
+      "network_egress": "pulls the falkordb/falkordb image from Docker Hub",
+      "network_ingress": "FalkorDB listens on loopback only"
+    }
   },
   "release": {
     "channel": "stable",
-    "published_at": "2026-07-28T10:00:00Z",
-    "valid_until": "2026-08-27T10:00:00Z",
-    "changelog": "https://ext.example.com/graph-memory/CHANGELOG.md#0-2-0",
+    "published_at": "2026-08-19T10:00:00Z",
+    "valid_until": "2026-09-18T10:00:00Z",
+    "changelog": "https://ext.example.com/graph-memory/CHANGELOG.md#0-3-0",
     "artifact": {
-      "url": "https://ext.example.com/graph-memory-0.2.0.tar.gz",
-      "sha256": "TBD-fill-at-publish-time"
+      "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   "updates": {
-    "source": { "kind": "github", "repo": "mintbot-ai/graph-memory" },
+    "source": {
+      "kind": "github",
+      "repo": "example-org/graph-memory"
+    },
     "check": "daily",
-    "policy": "auto"
+    "policy": "notify"
   },
   "signing": {
-    "public_key": "ed25519:MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=",
+    "public_key": "ed25519:Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=",
     "key_id": "graph-memory-2026",
     "next_key": null
   },
   "signature": "REPLACE_WITH_BASE64_ED25519_SIGNATURE_OVER_CANONICAL_MANIFEST",
   "targets": [
     {
-      "runtime": "hermes",
-      "runtime_version": ">= 2026.6",
+      "runtime": "posix",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
       "enforcement": "declared",
       "delivery": {
-        "method": "hermes-integration",
-        "install_url": "https://ext.example.com/graph-memory-hermes.tar.gz",
-        "install_sha256": "TBD-fill-at-publish-time",
-        "uninstall_command": "/opt/graph-memory/uninstall.sh"
+        "method": "archive",
+        "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "lifecycle": {
         "install": "install.sh",
@@ -80,15 +156,98 @@
         "health": "healthcheck.sh"
       },
       "component_map": {
-        "skills": "skills/",
-        "tools": { "module": "plugins/graph_memory/", "register": "plugins/graph_memory/__init__.py" },
+        "mcp_servers": {
+          "command": [
+            "bin/graph-memory-mcp"
+          ],
+          "register": "auto"
+        },
         "services": {
           "unit": "systemd:falkordb-graphmem.service",
-          "actions": ["daemon-reload", "enable", "start"],
+          "actions": [
+            "daemon-reload",
+            "enable",
+            "start"
+          ],
           "restart": "on-failure",
           "health": "redis-cli -p 6379 ping"
         },
-        "cron": { "unit": "systemd:graphmem-compaction.timer", "schedule": "0 4 * * *" }
+        "cron": {
+          "unit": "systemd:graphmem-compaction.timer",
+          "schedule": "0 4 * * *"
+        }
+      }
+    },
+    {
+      "runtime": "hermes",
+      "runtime_version": ">=2026.6",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "enforcement": "advisory",
+      "delivery": {
+        "method": "archive",
+        "url": "https://ext.example.com/graph-memory-0.3.0-hermes.tar.gz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "lifecycle": {
+        "install": "install.sh",
+        "upgrade": "upgrade.sh",
+        "uninstall": "uninstall.sh",
+        "health": "healthcheck.sh"
+      },
+      "component_map": {
+        "skills": {
+          "dir": "skills/",
+          "link": "symlink"
+        },
+        "tools": {
+          "module": "plugins/graph_memory/",
+          "register": "plugins/graph_memory/__init__.py"
+        },
+        "mcp_servers": {
+          "command": [
+            "bin/graph-memory-mcp"
+          ],
+          "register": "auto"
+        },
+        "services": {
+          "unit": "systemd:falkordb-graphmem.service",
+          "actions": [
+            "daemon-reload",
+            "enable",
+            "start"
+          ],
+          "restart": "on-failure",
+          "health": "redis-cli -p 6379 ping"
+        },
+        "cron": {
+          "unit": "systemd:graphmem-compaction.timer",
+          "schedule": "0 4 * * *"
+        }
+      }
+    },
+    {
+      "runtime": "claude-code",
+      "enforcement": "declared",
+      "delivery": {
+        "method": "archive",
+        "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "lifecycle": {
+        "install": "install.sh",
+        "uninstall": "uninstall.sh",
+        "health": "healthcheck.sh"
+      },
+      "component_map": {
+        "mcp_servers": {
+          "command": [
+            "bin/graph-memory-mcp"
+          ],
+          "register": "auto"
+        }
       }
     }
   ]

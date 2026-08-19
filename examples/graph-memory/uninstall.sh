@@ -4,7 +4,7 @@ set -euo pipefail
 
 EXT_NAME="graph-memory"
 PREFIX="${AXP_PREFIX:-/opt/${EXT_NAME}}"
-STATE_DIR="${AXP_STATE_DIR:-/var/lib/mintbot-agent/ext/${EXT_NAME}}"
+STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 SERVICE_NAME="falkordb-graphmem.service"
 PURGE="${AXP_PURGE:-0}"   # set to 1 to also remove state/data (the graph!)
 

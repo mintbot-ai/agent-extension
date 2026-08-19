@@ -4,7 +4,7 @@
 set -euo pipefail
 
 EXT_NAME="graph-memory"
-STATE_DIR="${AXP_STATE_DIR:-/var/lib/mintbot-agent/ext/${EXT_NAME}}"
+STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FALKOR_PORT="${GRAPHMEM_FALKOR_PORT:-6379}"
 
 # Load persisted config if present (for the port + password).

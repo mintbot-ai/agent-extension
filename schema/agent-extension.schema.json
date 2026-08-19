@@ -1,67 +1,82 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mintbot.ai/schema/agent-extension-0.2.json",
+  "$id": "https://agent-extension.org/schema/agent-extension-0.3.json",
   "title": "Agent Extension Protocol (AXP) manifest",
-  "description": "Draft v0.2. Runtime-neutral description of a packaged agent capability, plus per-runtime install recipes, updates, channels and ed25519 signing.",
+  "description": "Draft v0.3. Runtime-neutral description of a packaged agent capability, plus per-runtime install recipes, updates, channels and ed25519 signing. Forward-compatibility rule (SPEC §2.4): unknown fields and unknown provides/component_map types are permitted and MUST be ignored by hosts; security-relevant enums are closed.",
   "type": "object",
   "required": ["spec_version", "kind", "identity", "provides", "targets"],
-  "additionalProperties": false,
+  "additionalProperties": true,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "httpsUrl": { "type": "string", "pattern": "^https://" },
+    "relPath": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+" },
+    "ed25519Key": { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/]{43}=$", "description": "base64 of the 32 raw public-key bytes" },
+    "versionRange": { "type": "string", "pattern": "^(\\s*(>=|<=|>|<|=|\\^|~)?[0-9]+(\\.[0-9A-Za-z-]+)*\\s*)+$" },
+    "namedComponent": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" }
+      }
+    }
+  },
   "properties": {
-    "spec_version": { "type": "string", "const": "0.2" },
+    "spec_version": { "type": "string", "pattern": "^0\\.[0-9]+$", "description": "MAJOR.MINOR; this schema describes 0.3" },
     "kind": { "type": "string", "const": "agent-extension" },
 
     "identity": {
       "type": "object",
-      "required": ["name", "version", "display_name", "description"],
-      "additionalProperties": false,
+      "required": ["publisher", "name", "version", "display_name", "description"],
+      "additionalProperties": true,
       "properties": {
+        "publisher": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", "description": "DNS name; namespace of the extension id <publisher>/<name>" },
         "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "maxLength": 64 },
         "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].+)?$" },
         "display_name": { "type": "string", "minLength": 1 },
         "description": { "type": "string", "minLength": 1 },
         "author": { "type": "string" },
         "license": { "type": "string" },
-        "homepage": { "type": "string", "format": "uri" }
+        "homepage": { "$ref": "#/$defs/httpsUrl" },
+        "keywords": { "type": "array", "items": { "type": "string" } },
+        "i18n": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": { "display_name": { "type": "string" }, "description": { "type": "string" } }
+          }
+        }
       }
     },
 
     "provides": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "skills": {
+        "mcp_servers": {
           "type": "array",
           "items": {
-            "type": "object",
-            "required": ["name"],
+            "allOf": [{ "$ref": "#/$defs/namedComponent" }],
+            "required": ["name", "transport"],
             "properties": {
-              "name": { "type": "string" },
-              "summary": { "type": "string" },
-              "path": { "type": "string" }
+              "transport": { "type": "string", "enum": ["stdio", "http", "sse"] },
+              "command_ref": { "$ref": "#/$defs/relPath" },
+              "url": { "type": "string" }
             }
           }
         },
         "tools": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name"],
-            "properties": {
-              "name": { "type": "string" },
-              "summary": { "type": "string" },
-              "input_schema_ref": { "type": "string" }
-            }
-          }
+          "items": { "allOf": [{ "$ref": "#/$defs/namedComponent" }], "properties": { "input_schema_ref": { "$ref": "#/$defs/relPath" } } }
         },
         "services": {
           "type": "array",
           "items": {
-            "type": "object",
+            "allOf": [{ "$ref": "#/$defs/namedComponent" }],
             "required": ["name", "kind"],
             "properties": {
-              "name": { "type": "string" },
               "kind": { "type": "string", "enum": ["daemon", "oneshot", "sidecar"] },
-              "summary": { "type": "string" },
               "endpoint": { "type": "string" }
             }
           }
@@ -69,42 +84,41 @@
         "memory": {
           "type": "array",
           "items": {
-            "type": "object",
+            "allOf": [{ "$ref": "#/$defs/namedComponent" }],
             "required": ["name", "kind"],
             "properties": {
-              "name": { "type": "string" },
               "kind": { "type": "string", "enum": ["graph", "vector", "kv", "relational"] },
-              "summary": { "type": "string" },
-              "schema_ref": { "type": "string" }
+              "schema_ref": { "$ref": "#/$defs/relPath" }
             }
           }
         },
-        "cron": {
+        "skills": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "schedule"],
-            "properties": {
-              "name": { "type": "string" },
-              "schedule": { "type": "string" },
-              "summary": { "type": "string" }
-            }
-          }
+          "items": { "allOf": [{ "$ref": "#/$defs/namedComponent" }], "properties": { "path": { "$ref": "#/$defs/relPath" } } }
+        },
+        "prompts": {
+          "type": "array",
+          "items": { "allOf": [{ "$ref": "#/$defs/namedComponent" }], "properties": { "fragment_ref": { "$ref": "#/$defs/relPath" } } }
         },
         "persona": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["fragment_ref"],
-            "properties": {
-              "fragment_ref": { "type": "string" }
-            }
-          }
+          "description": "v0.2 alias of prompts; read, never written by v0.3 publishers",
+          "items": { "type": "object", "properties": { "fragment_ref": { "$ref": "#/$defs/relPath" } } }
+        },
+        "channels": { "type": "array", "items": { "$ref": "#/$defs/namedComponent" } },
+        "model_providers": { "type": "array", "items": { "$ref": "#/$defs/namedComponent" } },
+        "hooks": {
+          "type": "array",
+          "items": { "allOf": [{ "$ref": "#/$defs/namedComponent" }], "required": ["name", "event"], "properties": { "event": { "type": "string" } } }
+        },
+        "cron": {
+          "type": "array",
+          "items": { "allOf": [{ "$ref": "#/$defs/namedComponent" }], "required": ["name", "schedule"], "properties": { "schedule": { "type": "string" } } }
         },
         "config": {
           "type": "object",
           "properties": {
-            "schema_ref": { "type": "string" },
+            "schema_ref": { "$ref": "#/$defs/relPath" },
             "secrets": { "type": "array", "items": { "type": "string" } }
           }
         }
@@ -113,46 +127,64 @@
 
     "requires": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "extensions": { "type": "array", "items": { "type": "string" } },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9][a-z0-9_-]*$" },
+              "version": { "$ref": "#/$defs/versionRange" }
+            }
+          }
+        },
         "resources": {
           "type": "object",
           "properties": {
             "disk_mb": { "type": "integer", "minimum": 0 },
             "ram_mb": { "type": "integer", "minimum": 0 }
           }
-        }
+        },
+        "commands": { "type": "array", "items": { "type": "string" } }
       }
     },
 
     "permissions": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Closed: an unknown permission key is a refusal, not an ignore (SPEC §2.4).",
       "properties": {
-        "network_egress": { "type": "array", "items": { "type": "string" } },
-        "filesystem": { "type": "array", "items": { "type": "string" } },
+        "network_egress": { "type": "array", "items": { "type": "string", "pattern": "^(\\*\\.)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$" } },
+        "network_ingress": { "type": "array", "items": { "type": "string", "pattern": "^([A-Za-z0-9.:\\[\\]-]+:)?[0-9]{1,5}/(tcp|udp)$" } },
+        "filesystem": { "type": "array", "items": { "type": "string", "pattern": "^([a-z][a-z0-9_-]*:)?[a-z][a-z0-9_-]*:(r|rw)$" }, "description": "<scope>:<mode> or <runtime>:<scope>:<mode>" },
+        "secrets": { "type": "array", "items": { "type": "string" } },
         "root": { "type": "boolean" },
-        "reason": { "type": "string" }
+        "reason": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": { "type": "string" } }
+          ]
+        }
       }
     },
 
     "release": {
       "type": "object",
       "required": ["channel", "artifact"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "channel": { "type": "string", "description": "Core enum dev|alpha|beta|stable, or a custom opaque channel name." },
+        "channel": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "description": "Core dev|alpha|beta|stable, or a custom opaque channel name." },
         "published_at": { "type": "string", "format": "date-time" },
-        "valid_until": { "type": "string", "format": "date-time", "description": "Freshness bound; signed manifests use this for freeze/rollback resistance." },
+        "valid_until": { "type": "string", "format": "date-time" },
         "changelog": { "type": "string" },
         "artifact": {
           "type": "object",
           "required": ["url", "sha256"],
-          "additionalProperties": false,
           "properties": {
-            "url": { "type": "string", "format": "uri" },
-            "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$|^TBD.*$" }
+            "url": { "$ref": "#/$defs/httpsUrl" },
+            "sha256": { "$ref": "#/$defs/sha256" }
           }
         }
       }
@@ -161,37 +193,14 @@
     "updates": {
       "type": "object",
       "required": ["source"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "source": {
           "oneOf": [
-            {
-              "type": "object",
-              "required": ["kind", "repo"],
-              "additionalProperties": false,
-              "properties": {
-                "kind": { "const": "github" },
-                "repo": { "type": "string", "pattern": "^[^/]+/[^/]+$" }
-              }
-            },
-            {
-              "type": "object",
-              "required": ["kind", "url"],
-              "additionalProperties": false,
-              "properties": {
-                "kind": { "const": "feed" },
-                "url": { "type": "string", "format": "uri" }
-              }
-            },
-            {
-              "type": "object",
-              "required": ["kind", "url"],
-              "additionalProperties": false,
-              "properties": {
-                "kind": { "const": "direct" },
-                "url": { "type": "string", "format": "uri" }
-              }
-            }
+            { "type": "object", "required": ["kind", "repo"], "properties": { "kind": { "const": "github" }, "repo": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" } } },
+            { "type": "object", "required": ["kind", "url", "repo"], "properties": { "kind": { "const": "forge" }, "url": { "$ref": "#/$defs/httpsUrl" }, "repo": { "type": "string" } } },
+            { "type": "object", "required": ["kind", "url"], "properties": { "kind": { "const": "feed" }, "url": { "$ref": "#/$defs/httpsUrl" } } },
+            { "type": "object", "required": ["kind", "url"], "properties": { "kind": { "const": "direct" }, "url": { "$ref": "#/$defs/httpsUrl" } } }
           ]
         },
         "check": { "type": "string", "enum": ["hourly", "daily", "weekly", "manual"] },
@@ -202,16 +211,11 @@
     "signing": {
       "type": "object",
       "required": ["public_key"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
-        "public_key": { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/=]+$" },
+        "public_key": { "$ref": "#/$defs/ed25519Key" },
         "key_id": { "type": "string" },
-        "next_key": {
-          "anyOf": [
-            { "type": "null" },
-            { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/=]+$" }
-          ]
-        }
+        "next_key": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/ed25519Key" }] }
       }
     },
     "signature": { "type": "string", "description": "base64 ed25519 signature over the canonical (JCS) manifest with signature/signature_prev removed." },
@@ -223,37 +227,57 @@
       "items": {
         "type": "object",
         "required": ["runtime", "delivery", "lifecycle"],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
-          "runtime": { "type": "string" },
-          "runtime_version": { "type": "string" },
+          "runtime": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$", "description": "posix | a registered runtime id | reverse-DNS id" },
+          "runtime_version": { "$ref": "#/$defs/versionRange" },
+          "platforms": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]+/[a-z0-9]+$" } },
           "enforcement": { "type": "string", "enum": ["declared", "advisory", "enforced"] },
           "delivery": {
             "type": "object",
             "required": ["method"],
-            "properties": {
-              "method": { "type": "string" }
-            }
+            "additionalProperties": true,
+            "properties": { "method": { "type": "string" } },
+            "allOf": [
+              {
+                "if": { "properties": { "method": { "const": "archive" } } },
+                "then": {
+                  "required": ["url", "sha256"],
+                  "properties": {
+                    "url": { "$ref": "#/$defs/httpsUrl" },
+                    "sha256": { "$ref": "#/$defs/sha256" },
+                    "format": { "type": "string", "enum": ["tar.gz", "zip"] }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "method": { "const": "hermes-integration" } } },
+                "then": {
+                  "required": ["install_url", "install_sha256", "uninstall_command"],
+                  "properties": {
+                    "install_url": { "$ref": "#/$defs/httpsUrl" },
+                    "install_sha256": { "$ref": "#/$defs/sha256" },
+                    "uninstall_command": { "type": "string" },
+                    "requires_oauth": { "anyOf": [{ "type": "null" }, { "type": "string" }] }
+                  }
+                }
+              }
+            ]
           },
           "lifecycle": {
             "type": "object",
             "required": ["install", "uninstall"],
             "additionalProperties": false,
             "properties": {
-              "install": { "type": "string" },
-              "upgrade": { "type": "string" },
-              "uninstall": { "type": "string" },
-              "health": { "type": "string" }
+              "install": { "$ref": "#/$defs/relPath" },
+              "upgrade": { "$ref": "#/$defs/relPath" },
+              "uninstall": { "$ref": "#/$defs/relPath" },
+              "health": { "$ref": "#/$defs/relPath" }
             }
           },
           "component_map": {
             "type": "object",
-            "additionalProperties": {
-              "oneOf": [
-                { "type": "string" },
-                { "type": "object" }
-              ]
-            }
+            "additionalProperties": { "oneOf": [{ "type": "string" }, { "type": "object" }] }
           }
         }
       }

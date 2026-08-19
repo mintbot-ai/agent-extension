@@ -5,7 +5,7 @@
 set -euo pipefail
 
 EXT_NAME="graph-memory"
-STATE_DIR="${AXP_STATE_DIR:-/var/lib/mintbot-agent/ext/${EXT_NAME}}"
+STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FROM_VERSION="${AXP_FROM_VERSION:-unknown}"
 
 log() { echo "[graph-memory] $*"; }

@@ -1,97 +1,114 @@
-# AXP signing, pinning & key rotation
+# AXP signing, pinning & key rotation (v0.3)
 
-This is the practical companion to §8 of [`../SPEC.md`](../SPEC.md). It shows a
-publisher how to sign a manifest, and a host how to verify, pin, and follow key
-rotation. AXP uses **ed25519** (minisign-style): no CA, no PKI, self-hostable.
+Practical companion to §8 of [`../SPEC.md`](../SPEC.md): how a publisher signs
+a manifest, and how a host verifies, pins, and follows key rotation. AXP uses
+**ed25519** (minisign-style): no CA, no PKI, self-hostable, runtime-neutral.
 
 ## 1. What gets signed
 
 The signature covers the **canonical (JCS / RFC 8785) serialization of the whole
 manifest with the `signature` and `signature_prev` fields removed**. Because the
-manifest embeds `release.artifact.sha256`, signing the manifest transitively
-binds the version, channel, `valid_until`, and the artifact bytes into one
-signed unit — no separate artifact signature is needed.
+manifest embeds every artifact digest (`release.artifact.sha256` and each
+`targets[].delivery.sha256`), signing the manifest transitively binds the
+version, channel, `valid_until`, and the artifact bytes into one signed unit —
+no separate artifact signature is needed.
 
-The signature is **inline** in the top-level `signature` field (base64 ed25519).
+The signature is **inline** in the top-level `signature` field: base64 of the
+64-byte ed25519 signature.
 
-## 2. Publisher: generate a key (once)
+## 2. Key format (normative)
+
+`signing.public_key` is **`ed25519:<base64 of the 32 raw public-key bytes>`** —
+exactly 44 base64 characters after the prefix. Not SPKI/DER, not PEM. Every
+ed25519 library (libsodium, Go `crypto/ed25519`, Python `cryptography` /
+`PyNaCl`, tweetnacl, ring, …) consumes the raw 32 bytes directly, so a host
+in any language verifies without ASN.1 parsing.
+
+For the OpenSSL **CLI** (which wants SPKI), rebuild the SPKI by prepending the
+constant 12-byte prefix `302a300506032b6570032100`:
 
 ```bash
-# Any ed25519 keypair works. Example with `age-keygen`-style or raw openssl:
-openssl genpkey -algorithm ed25519 -out axp-signing.key
-openssl pkey -in axp-signing.key -pubout -outform DER \
-  | tail -c 32 | base64        # -> the value after "ed25519:" in signing.public_key
+RAW_B64="…"   # the part after ed25519:
+{ printf '302a300506032b6570032100' | xxd -r -p; echo "$RAW_B64" | base64 -d; } \
+  | openssl pkey -pubin -inform DER -outform PEM > pub.pem
 ```
 
-Keep `axp-signing.key` offline/secret. Put the base64 public key in the
-manifest:
+## 3. Publisher: generate a key (once)
+
+```bash
+openssl genpkey -algorithm ed25519 -out axp-signing.key          # keep offline / secret
+openssl pkey -in axp-signing.key -pubout -outform DER | tail -c 32 | base64
+# -> paste after "ed25519:" into signing.public_key
+```
 
 ```jsonc
-"signing": { "public_key": "ed25519:BASE64PUB", "key_id": "graph-memory-2026", "next_key": null }
+"signing": { "public_key": "ed25519:BASE64RAW32", "key_id": "graph-memory-2026", "next_key": null }
 ```
 
-## 3. Publisher: sign a release
+`key_id` is a human label only; the key bytes are the identity.
 
-1. Build the manifest with `signature`/`signature_prev` **absent**.
+## 4. Publisher: sign a release
+
+1. Build the manifest with `signature` / `signature_prev` **absent**.
 2. Canonicalize (JCS) and sign the bytes with the private key.
 3. Insert the base64 signature as the top-level `signature`.
 
 ```bash
-# Pseudocode — use any JCS lib to canonicalize first.
+# Pseudocode — use any JCS library to canonicalize first.
 canonicalize agent-extension.json > canonical.bin
-openssl pkeyutl -sign -inkey axp-signing.key -rawin -in canonical.bin \
-  | base64 -w0     # -> paste into "signature"
+openssl pkeyutl -sign -inkey axp-signing.key -rawin -in canonical.bin | base64 -w0
+# -> paste into "signature"
 ```
 
-Publish the manifest at `/.well-known/agent-extension.json` (and/or as a release
-asset for `github` update sources).
+Publish the signed manifest as `agent-extension.json` at
+`/.well-known/agent-extension.json`, at the repo root, and — for `github` /
+`forge` update sources — as a release asset of the `v<version>` release.
 
-## 4. Host: first install (Trust On First Use)
+## 5. Host: first install (Trust On First Use)
 
-1. Fetch the manifest, lift out `signature`, canonicalize the rest.
+1. Fetch the manifest, lift out `signature` (+ `signature_prev`), canonicalize
+   the rest.
 2. Verify against `signing.public_key`.
-3. On success, **pin** that public key into the extension's local state
-   (`…/ext/<name>/trust.json`), alongside the installed version.
+3. On success, **pin** that key under the extension id `<publisher>/<name>`
+   alongside the installed version.
 
-From now on, every update must verify against the pinned key (§5).
+```bash
+# OpenSSL CLI verify (pub.pem from §2):
+echo "$SIGNATURE_B64" | base64 -d > sig.bin
+openssl pkeyutl -verify -pubin -inkey pub.pem -rawin -in canonical.bin -sigfile sig.bin
+```
 
-## 5. Host: verifying an update
+A host MAY carry **trust anchors** (an organisation-wide allow-list of
+publisher keys) and refuse TOFU for keys not on it — host policy, not manifest.
+
+## 6. Host: verifying an update
 
 - Canonicalize the candidate manifest (minus signatures), verify `signature`
-  against the **pinned** key.
-- Reject if verification fails — this is the "updates only from the same key"
-  rule.
-- Enforce monotonicity: only apply if `identity.version` is strictly higher
+  against the **pinned** key for that extension id.
+- Reject if verification fails — "updates only from the same key".
+- Enforce monotonicity: apply only if `identity.version` is strictly higher
   than installed, on the tracked channel.
-- If `release.valid_until` is present and in the past (beyond a small grace
-  window), warn: the publisher may have stopped signing, or you are being held
-  back at an old version (freeze). See §7.4 of the spec.
+- If `release.valid_until` is past (beyond the host's grace window), warn: the
+  publisher may have stopped signing, or you are being frozen at an old
+  version (SPEC §7.4).
 
-## 6. Key rotation (no brick)
-
-A lost or leaked key must not permanently lock out updates. Rotation is a small,
-ca-free dance:
+## 7. Key rotation (no brick)
 
 1. **Announce** — a normal release, signed by the current pinned key, sets
-   `signing.next_key` to the *new* public key. Hosts record the announced
-   successor but keep trusting the current key.
+   `signing.next_key` to the new public key. Hosts record the successor but keep
+   trusting the current key.
 2. **Rotate** — the first release under the new key is **dual-signed**:
-   - `signature` = signature by the **new** key,
-   - `signature_prev` = signature by the **old pinned** key,
-   - `signing.public_key` = the new key.
-   The host verifies `signature_prev` against the pinned key (satisfies
-   "same key"), confirms `signing.public_key` equals the previously announced
-   `next_key`, verifies `signature` against the new key, then **re-pins** to the
-   new key.
-3. **After** — subsequent releases are signed by the new key alone.
+   `signature` by the **new** key, `signature_prev` by the **old pinned** key,
+   `signing.public_key` = the new key (must equal the announced `next_key`).
+   The host verifies `signature_prev` against the pinned key, checks the
+   announcement, verifies `signature` against the new key, then **re-pins**.
+3. **After** — releases are signed by the new key alone.
 
-If a key is lost with **no** `next_key` announced in advance, self-rotation is
-impossible by design — recovery is a fresh TOFU the user must explicitly
-confirm. That is the safe outcome, not a bug.
+A key lost with **no** `next_key` announced cannot self-rotate — recovery is a
+fresh TOFU the user must explicitly confirm. That is the safe outcome.
 
-## 7. Unsigned extensions
+## 8. Unsigned extensions
 
 Signing is optional but recommended. An unsigned manifest installs with a clear
-warning, and once an extension has been installed *signed*, the host must not
-silently accept a later *unsigned* manifest for it (downgrade-to-unsigned is a
-trust break needing explicit user action).
+warning; once an extension has been installed *signed*, a later *unsigned*
+manifest for the same id is a trust break needing explicit user action.

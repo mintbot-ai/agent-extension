@@ -14,17 +14,22 @@
 # host, not here. This is the same trade-off as any `curl | bash`.
 set -euo pipefail
 
-# ---- configuration (env-or-default) -----------------------------------------
+# ---- configuration (AXP_CONFIG_FILE, then env, then defaults) ----------------
+# An AXP host hands config + secrets over in ONE 0600 dotenv file (SPEC §6.3);
+# a human running this by hand has no file and falls through to env/defaults.
+if [ -n "${AXP_CONFIG_FILE:-}" ] && [ -r "${AXP_CONFIG_FILE}" ]; then
+  set -a; . "${AXP_CONFIG_FILE}"; set +a
+fi
 EXT_NAME="graph-memory"
 PREFIX="${AXP_PREFIX:-/opt/${EXT_NAME}}"
-STATE_DIR="${AXP_STATE_DIR:-/var/lib/mintbot-agent/ext/${EXT_NAME}}"
+STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FALKOR_PORT="${GRAPHMEM_FALKOR_PORT:-6379}"
 SERVICE_NAME="falkordb-graphmem.service"
 
 # Secret: from env if the host passed it, else generate one (non-interactive) or
 # prompt on a TTY.
 if [ -z "${FALKOR_PASSWORD:-}" ]; then
-  if [ -t 0 ]; then
+  if [ -t 0 ] && [ "${AXP_NONINTERACTIVE:-0}" != "1" ]; then
     read -rsp "FalkorDB password (blank = auto-generate): " FALKOR_PASSWORD || true
     echo
   fi

@@ -56,12 +56,16 @@ selection — plus the `axp` CLI. No hard dependencies: signing uses the
 ```bash
 pip install -e .            # or: pip install -e .[dev] for tests
 
-# publisher side
+# publisher side — a release is three commands
+axp init --publisher ext.example.com --name my-ext --description "…"
 axp keygen --out signing.key            # prints the ed25519:… public form
-axp validate agent-extension.json
-axp sign agent-extension.json --key signing.key --in-place
+axp release agent-extension.json --bump patch \
+    --artifact dist/my-ext.tar.gz --key signing.key
+# (release = set version, follow version-in-URL, fill real sha256s,
+#  stamp published_at/valid_until, sign, validate — in one step)
 
 # host side
+axp validate agent-extension.json
 axp verify agent-extension.json --pinned ed25519:…
 axp target agent-extension.json --runtime hermes --runtime posix
 ```

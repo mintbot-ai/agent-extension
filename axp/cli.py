@@ -2,8 +2,10 @@
 
 Publisher side::
 
+    axp init --publisher ext.example.com --name my-ext --description "…"
     axp keygen --out signing.key            # prints the ed25519:… public form
     axp validate agent-extension.json
+    axp release agent-extension.json --bump patch --artifact dist/my-ext.tar.gz --key signing.key
     axp sign agent-extension.json --key signing.key --in-place
 
 Host side::
@@ -23,7 +25,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, jcs, manifest, signing
+from . import __version__, jcs, manifest, publish, signing
 
 
 def _load(path: str) -> dict:
@@ -90,6 +92,56 @@ def _cmd_sign(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    out_dir = Path(args.dir)
+    manifest_path = out_dir / "agent-extension.json"
+    if manifest_path.exists() and not args.force:
+        print(f"axp: {manifest_path} already exists (use --force to overwrite)", file=sys.stderr)
+        return 1
+    try:
+        data = publish.skeleton(
+            publisher=args.publisher,
+            name=args.name,
+            display_name=args.display_name or args.name,
+            description=args.description,
+            runtimes=tuple(args.runtime or ["posix"]),
+            base_url=args.base_url,
+        )
+        manifest.validate(data)
+    except (publish.PublishError, manifest.ManifestError) as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"created: {manifest_path}")
+    return 0
+
+
+def _cmd_release(args: argparse.Namespace) -> int:
+    data = _load(args.manifest)
+    try:
+        released = publish.prepare_release(
+            data,
+            artifacts=publish.parse_artifact_args(args.artifact),
+            version=args.set_version,
+            bump=args.bump,
+            channel=args.channel,
+            valid_days=args.valid_days,
+        )
+        if args.key:
+            released = signing.sign_manifest(released, Path(args.key).read_bytes())
+        manifest.validate(released)
+    except (publish.PublishError, manifest.ManifestError, signing.SigningError) as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    if not args.key:
+        print("warning: release is UNSIGNED (pass --key to sign)", file=sys.stderr)
+    target = args.output or args.manifest
+    Path(target).write_text(json.dumps(released, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"released {released['identity']['version']}: {target}")
+    return 0
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     data = _load(args.manifest)
     try:
@@ -127,6 +179,33 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("canonicalize", help="print the JCS signing input (manifest minus signatures)")
     p.add_argument("manifest")
     p.set_defaults(func=_cmd_canonicalize)
+
+    p = sub.add_parser("init", help="write a valid manifest skeleton to start from")
+    p.add_argument("--publisher", required=True, help="your DNS name, e.g. ext.example.com")
+    p.add_argument("--name", required=True, help="extension slug, e.g. graph-memory")
+    p.add_argument("--description", required=True)
+    p.add_argument("--display-name", help="human label (default: the slug)")
+    p.add_argument("--runtime", action="append",
+                   help="target runtime (repeatable; default: posix)")
+    p.add_argument("--base-url", help="where artifacts + the well-known manifest are served (default: https://<publisher>)")
+    p.add_argument("--dir", default=".", help="directory to write agent-extension.json into")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=_cmd_init)
+
+    p = sub.add_parser("release", help="bump version, fill artifact digests, stamp dates, sign")
+    p.add_argument("manifest")
+    p.add_argument("--artifact", action="append", required=True, metavar="[RUNTIME=]PATH",
+                   help="artifact file; bare PATH is the default for every archive target, "
+                        "RUNTIME=PATH overrides one runtime (repeatable)")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--version", dest="set_version", help="explicit new semver")
+    group.add_argument("--bump", choices=["major", "minor", "patch"])
+    p.add_argument("--channel", help="release channel (default: keep the manifest's)")
+    p.add_argument("--valid-days", type=int, default=30,
+                   help="freshness window for valid_until; 0 drops the field (default: 30)")
+    p.add_argument("--key", help="private key PEM from `axp keygen`; omitting leaves the release unsigned")
+    p.add_argument("-o", "--output", help="write here instead of in place")
+    p.set_defaults(func=_cmd_release)
 
     p = sub.add_parser("keygen", help="generate an ed25519 signing key (prints the public form)")
     p.add_argument("--out", required=True, help="private key PEM path (written 0600)")

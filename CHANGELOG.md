@@ -2,6 +2,13 @@
 
 ## unreleased
 
+- Publisher tooling: `axp init` writes a structurally valid v0.3 manifest
+  skeleton (all-zero digest placeholders, posix target by default) and
+  `axp release` performs a whole release in one step — explicit `--version`
+  or `--bump major|minor|patch`, version-in-URL rewrite, real sha256 per
+  archive target from `--artifact [runtime=]path`, `published_at` /
+  `valid_until` stamping, optional `--key` signing, validation before
+  anything is written (unsigned releases succeed with a loud warning).
 - Reference implementation: the `axp` Python package (`axp.manifest`
   validation + target selection, `axp.jcs` RFC 8785 canonicalization,
   `axp.signing` ed25519 sign/verify with the TOFU `PinStore`) and the `axp`

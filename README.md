@@ -46,11 +46,40 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
   lifecycle scripts.
 - [`CHANGELOG.md`](CHANGELOG.md).
 
+## Reference implementation: the `axp` package
+
+This repo ships a runtime-neutral Python reference implementation —
+validation, JCS canonicalization, ed25519 signing with TOFU pinning, target
+selection — plus the `axp` CLI. No hard dependencies: signing uses the
+`cryptography` package when importable and falls back to the `openssl` CLI.
+
+```bash
+pip install -e .            # or: pip install -e .[dev] for tests
+
+# publisher side
+axp keygen --out signing.key            # prints the ed25519:… public form
+axp validate agent-extension.json
+axp sign agent-extension.json --key signing.key --in-place
+
+# host side
+axp verify agent-extension.json --pinned ed25519:…
+axp target agent-extension.json --runtime hermes --runtime posix
+```
+
+Host authors: reuse `axp.signing.PinStore` (the §8 trust state machine) and
+`axp.manifest.validate` / `select_target` instead of reimplementing them.
+
+## Conformance
+
+`conformance/` is an executable check of the SPEC §11 host profiles (Core +
+Trusted). Run it against the reference implementation with `pytest
+conformance/`, or against your own host by implementing the three-method
+adapter — see [conformance/README.md](conformance/README.md).
+
 ## Status
 
 **Draft v0.3** — the universality revision. Field names may still change
-before v1.0; open questions are at the end of `SPEC.md`. A reference host
-library + conformance suite (`conformance/`) is the next deliverable.
+before v1.0; open questions are at the end of `SPEC.md`.
 
 ## Contributing
 

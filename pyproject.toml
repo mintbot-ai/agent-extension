@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axp"
+version = "0.3.0"
+description = "Reference implementation of the Agent Extension Protocol (AXP): manifest validation, JCS canonicalization, ed25519 signing with TOFU pinning, and the axp CLI."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+# No hard dependencies: signing uses the `cryptography` package when
+# importable and falls back to the openssl CLI otherwise.
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["cryptography>=41"]
+dev = ["pytest>=8", "cryptography>=41", "jsonschema>=4"]
+
+[project.scripts]
+axp = "axp.cli:main"
+
+[tool.setuptools]
+packages = ["axp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "conformance"]

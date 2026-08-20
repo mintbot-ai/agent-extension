@@ -131,11 +131,10 @@
     "policy": "notify"
   },
   "signing": {
-    "public_key": "ed25519:Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=",
+    "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
     "key_id": "graph-memory-2026",
     "next_key": null
   },
-  "signature": "REPLACE_WITH_BASE64_ED25519_SIGNATURE_OVER_CANONICAL_MANIFEST",
   "targets": [
     {
       "runtime": "posix",
@@ -250,5 +249,6 @@
         }
       }
     }
-  ]
+  ],
+  "signature": "HNlTusczQWOju8YRPYd3ly1L5iZFIuHtDvuB4iSdAmgSIfKxzzr28/dW4gGPNbSBlCtkc96da8We6ztrS655BQ=="
 }

@@ -1,5 +1,20 @@
 # Changelog
 
+## unreleased
+
+- Reference implementation: the `axp` Python package (`axp.manifest`
+  validation + target selection, `axp.jcs` RFC 8785 canonicalization,
+  `axp.signing` ed25519 sign/verify with the TOFU `PinStore`) and the `axp`
+  CLI (`validate | canonicalize | keygen | sign | verify | target`). No hard
+  dependencies; signing works via the `cryptography` package or the openssl
+  CLI.
+- Conformance suite (`conformance/`): executable SPEC §11 checks for the
+  Core and Trusted host profiles, runnable against any host through a
+  three-method adapter (reference adapter included).
+- The graph-memory example manifest is now really signed (with the
+  committed, explicitly untrusted `example-signing.key`) so
+  `axp verify examples/graph-memory/agent-extension.json` works out of the box.
+
 ## v0.3 (draft, 2026-08-19) — universality revision
 
 Breaking (v0.2 → v0.3 migration table in SPEC §13):

@@ -1,4 +1,4 @@
-# AXP signing, pinning & key rotation (v0.3)
+# AXP signing, pinning & key rotation (v0.4)
 
 Practical companion to §8 of [`../SPEC.md`](../SPEC.md): how a publisher signs
 a manifest, and how a host verifies, pins, and follows key rotation. AXP uses
@@ -112,3 +112,31 @@ fresh TOFU the user must explicitly confirm. That is the safe outcome.
 Signing is optional but recommended. An unsigned manifest installs with a clear
 warning; once an extension has been installed *signed*, a later *unsigned*
 manifest for the same id is a trust break needing explicit user action.
+
+## 9. The publisher key directory (SPEC section 8.5)
+
+Serve `https://<publisher>/.well-known/agent-extension-keys.json` listing
+every key you currently sign with. `axp keydir` writes it:
+
+```bash
+axp keydir --publisher ext.example.com \
+  --key ed25519:NEWKEY...@graph-memory \
+  --revoked ed25519:OLDKEY... -o agent-extension-keys.json
+```
+
+What it buys you:
+
+- **Rotation needs two things**: a release dual-signed by the old key AND the
+  new key listed here. Someone who only stole your signing key cannot move
+  users' pins.
+- **Lost key**: list the new key, drop (or mark `revoked`) the old one, sign
+  the next release with the new key. Hosts see "directory vouches for the
+  new key, not the pinned one" and offer the user a re-trust (`recover`) —
+  interactive, never silent. No rotation ceremony possible, no manual
+  re-install on every machine.
+- **First install (strict hosts)**: a host may refuse to pin a key you do not
+  list.
+
+Keep the directory on the publisher domain itself (the one in
+`identity.publisher`); hosts fetch it from there, never from a URL inside a
+manifest.

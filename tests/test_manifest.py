@@ -69,6 +69,28 @@ def test_select_target_prefers_host_order_and_platforms(example):
         manifest.select_target(example, runtimes=("openclaw",), platform="linux/amd64")
 
 
+def test_select_target_honours_runtime_version(example):
+    hermes = next(t for t in example["targets"] if t["runtime"] == "hermes")
+    hermes["runtime_version"] = ">=2026.6"
+    _target, runtime = manifest.select_target(
+        example, runtimes=("hermes", "posix"), platform="linux/amd64",
+        runtime_versions={"hermes": "2026.8.3"})
+    assert runtime == "hermes"
+    _target, runtime = manifest.select_target(
+        example, runtimes=("hermes", "posix"), platform="linux/amd64",
+        runtime_versions={"hermes": "2026.5"})
+    assert runtime == "posix"  # too old for the hermes target -> baseline
+    with pytest.raises(manifest.ManifestError, match="needs runtime_version"):
+        manifest.select_target(example, runtimes=("hermes",), platform="linux/amd64",
+                               runtime_versions={"hermes": "2026.5"})
+    # Unknown host version: the constraint cannot be checked, target accepted.
+    _target, runtime = manifest.select_target(example, runtimes=("hermes",), platform="linux/amd64")
+    assert runtime == "hermes"
+    hermes["runtime_version"] = ">= 2026.6"
+    with pytest.raises(manifest.ManifestError, match="runtime_version"):
+        manifest.validate(example)
+
+
 def test_hermes_integration_delivery_only_on_hermes(example):
     example["targets"][0]["delivery"] = {
         "method": "hermes-integration", "install_url": "https://x.example/a.tgz",

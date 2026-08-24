@@ -24,7 +24,9 @@ from __future__ import annotations
 import platform as _platform
 import re
 from datetime import datetime
-from typing import Any, NoReturn
+from typing import Any, Mapping, NoReturn
+
+from . import versions
 
 AXP_KIND = "agent-extension"
 SUPPORTED_SPEC_MAJORS = (0,)
@@ -187,6 +189,18 @@ def _datetime(parent: dict, key: str, path: str) -> None:
         _fail(path + key, f"{value!r} is not an ISO-8601 timestamp")
 
 
+def _constraint(parent: dict, key: str, path: str) -> str | None:
+    """A SPEC section 4.3 version constraint; the regex is the schema's coarse
+    grammar, :mod:`versions` is the real parser."""
+    value = _string(parent, key, path, pattern=VERSION_RANGE_RE, expect="e.g. '>=1.0 <2'")
+    if value is not None:
+        try:
+            versions.parse_constraint(value)
+        except versions.VersionError as exc:
+            _fail(path + key, str(exc))
+    return value
+
+
 def _relative_path(parent: dict, key: str, path: str, *, required: bool = False) -> str | None:
     """Artifact-relative: no absolute paths, no ``..`` escapes, no NUL."""
     value = _string(parent, key, path, required=required)
@@ -273,8 +287,7 @@ def _check_requires(data: dict) -> None:
                 _fail(f"requires.extensions[{index}]", "must be an object {id, version}")
             _string(entry, "id", f"requires.extensions[{index}].", required=True,
                     pattern=EXT_ID_RE, expect="<publisher>/<name>")
-            _string(entry, "version", f"requires.extensions[{index}].",
-                    pattern=VERSION_RANGE_RE, expect="e.g. '>=1.0 <2'")
+            _constraint(entry, "version", f"requires.extensions[{index}].")
     resources = _opt_dict(block, "resources", "requires.")
     if resources is not None:
         for key in ("disk_mb", "ram_mb"):
@@ -363,7 +376,7 @@ def _check_target(entry: Any, index: int) -> str:
     runtime = _string(entry, "runtime", path, required=True, pattern=RUNTIME_ID_RE,
                       expect="posix, a registered runtime id, or a reverse-DNS id")
     assert runtime is not None
-    _string(entry, "runtime_version", path, pattern=VERSION_RANGE_RE, expect="e.g. '>=2026.6'")
+    _constraint(entry, "runtime_version", path)
     _string_list(entry, "platforms", path, pattern=PLATFORM_RE, expect="os/arch such as linux/amd64")
     _enum(entry, "enforcement", path, ENFORCEMENT_TIERS)
 
@@ -441,25 +454,41 @@ def validate(data: Any, *, origin: str | None = None) -> dict:
 
 
 def select_target(data: dict, *, runtimes: tuple[str, ...],
-                  platform: str | None = None) -> tuple[dict, str]:
+                  platform: str | None = None,
+                  runtime_versions: Mapping[str, str] | None = None) -> tuple[dict, str]:
     """The target a host speaking ``runtimes`` (preference order; include
-    ``posix`` last to opt in to the §5.1 fallback) on ``platform`` installs.
+    ``posix`` last to opt in to the section 5.1 fallback) on ``platform`` installs.
+
+    ``runtime_versions`` maps runtime id → the version the host runs; an
+    entry whose ``runtime_version`` constraint that version does not satisfy
+    is skipped (SPEC section 5). Runtimes not in the map are not checked —
+    a host that does not know its runtime version cannot refuse on it.
     Returns ``(target, runtime)``; raises with a message naming what the
-    manifest offers when nothing matches."""
+    manifest offers (and which entries were skipped, and why) when nothing
+    matches."""
     if platform is None:
         platform = host_platform()
     targets = data.get("targets")
     if not isinstance(targets, list) or not targets:
         raise ManifestError("targets: must be a non-empty list")
     offered = sorted({str(t["runtime"]) for t in targets if isinstance(t, dict) and t.get("runtime")})
+    skipped: list[str] = []
     for runtime in runtimes:
         for entry in targets:
             if not isinstance(entry, dict) or entry.get("runtime") != runtime:
                 continue
             platforms = entry.get("platforms") or []
-            if not platforms or platform in platforms:
-                return entry, runtime
+            if platforms and platform not in platforms:
+                skipped.append(f"{runtime}: platforms {platforms} exclude {platform}")
+                continue
+            constraint = entry.get("runtime_version")
+            have = (runtime_versions or {}).get(runtime)
+            if constraint and have and not versions.satisfies(str(have), str(constraint)):
+                skipped.append(f"{runtime}: needs runtime_version {constraint!r}, host has {have!r}")
+                continue
+            return entry, runtime
+    detail = ("; skipped: " + "; ".join(skipped)) if skipped else ""
     raise ManifestError(
         f"no targets[] entry this host can install — it speaks {list(runtimes)} "
-        f"on {platform}; the manifest offers {offered}"
+        f"on {platform}; the manifest offers {offered}{detail}"
     )

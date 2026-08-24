@@ -89,3 +89,21 @@ def test_announce_then_dual_signed_rotation(adapter, example, key_a, key_b):
     # … and the old key no longer signs updates.
     accepted, _action = adapter.evaluate_trust(eid, _signed(example, key_a, version="0.4.1"))
     assert not accepted
+
+
+def test_rotation_to_a_key_the_publisher_directory_does_not_list_is_refused(adapter, example, key_a, key_b):
+    """SPEC section 8.5: when the directory is consulted, a rotation may only
+    move the pin to a key the publisher lists. A stolen signing key alone
+    can no longer take an extension over."""
+    if not hasattr(adapter, "evaluate_trust_with_directory"):
+        pytest.skip("host does not implement key-directory cross-checks (optional)")
+    eid = ext_id(example)
+    pem_a, pub_a = key_a
+    assert adapter.evaluate_trust(eid, _signed(example, key_a))[0]
+    assert adapter.evaluate_trust(eid, _signed(example, key_a, next_key=key_b[1]))[1] == "announce"
+    rotation = _signed(example, key_b, version="0.4.0")
+    rotation["signature_prev"] = signing.sign_bytes(jcs.signing_input(rotation), pem_a)
+    accepted, action = adapter.evaluate_trust_with_directory(eid, rotation, [pub_a])
+    assert not accepted and action == "refuse"
+    accepted, action = adapter.evaluate_trust_with_directory(eid, rotation, [pub_a, key_b[1]])
+    assert accepted and action == "rotate"

@@ -2,6 +2,29 @@
 
 ## unreleased
 
+- SPEC v0.4 (draft, additive): publisher key directory
+  `/.well-known/agent-extension-keys.json` as the second trust channel for
+  key rotation and lost-key recovery (8.5); the tracked channel is host
+  state preserved across updates (7.2); `valid_until` guidance — optional,
+  generous windows, warn once then monthly, expired candidates refused
+  (7.4); the consent ratchet for updates with normative coverage rules
+  (7.6); `AXP_SPEC_VERSION` is the host's version, `AXP_ARTIFACT_DIR` is the
+  running hook's own artifact (6.2); Managed profile evaluates
+  `runtime_version` and `requires.extensions` with the 4.3 grammar (11).
+- Reference implementation: `axp.versions` (the 4.3 constraint grammar and
+  one ordering for semver + calver, pre-release aware), `axp.updates`
+  (channel rule, policy grammar, freshness, `permissions_widened` with the
+  7.6 coverage semantics), `select_target(runtime_versions=…)` honours
+  `runtime_version`; `PinStore.decide()` is pure and `commit()` persists —
+  a failed download or hook can no longer leave a pin behind; `decide()`
+  takes the publisher key directory (`directory_keys`) and returns the new
+  `recover` action; `parse_key_directory` / `key_directory_url`.
+- CLI: `axp release --valid-days` defaults to 180 (0 omits `valid_until`);
+  `axp target --runtime-version RUNTIME=VERSION`; new `axp keydir` writes
+  the key directory document.
+- Conformance: Trusted profile gains the key-directory rotation case
+  (optional adapter method `evaluate_trust_with_directory`).
+
 - Publisher tooling: `axp init` writes a structurally valid v0.3 manifest
   skeleton (all-zero digest placeholders, posix target by default) and
   `axp release` performs a whole release in one step — explicit `--version`

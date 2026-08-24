@@ -22,9 +22,14 @@ class Adapter(Protocol):
         """Return the runtime id of the target the host would install; raise when none."""
 
     def evaluate_trust(self, ext_id: str, manifest: dict) -> tuple[bool, str]:
-        """Run the §8 trust decision against persistent per-adapter state.
+        """Run the section 8 trust decision against persistent per-adapter state.
         Returns ``(accepted, action)`` with action in
-        pin | same-key | announce | rotate | unsigned | refuse."""
+        pin | same-key | announce | rotate | recover | unsigned | refuse."""
+
+    def evaluate_trust_with_directory(self, ext_id: str, manifest: dict,
+                                      directory_keys: list[str]) -> tuple[bool, str]:
+        """OPTIONAL (section 8.5): the same decision with the publisher key
+        directory consulted. Hosts that do not implement it skip those cases."""
 
 
 class ReferenceAdapter:
@@ -46,6 +51,11 @@ class ReferenceAdapter:
 
     def evaluate_trust(self, ext_id: str, manifest: dict) -> tuple[bool, str]:
         decision = self._pins.evaluate(ext_id, manifest)
+        return decision.accepted, decision.action
+
+    def evaluate_trust_with_directory(self, ext_id: str, manifest: dict,
+                                      directory_keys: list[str]) -> tuple[bool, str]:
+        decision = self._pins.evaluate(ext_id, manifest, directory_keys=directory_keys)
         return decision.accepted, decision.action
 
 

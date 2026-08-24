@@ -156,13 +156,49 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 def _cmd_target(args: argparse.Namespace) -> int:
     data = _load(args.manifest)
     try:
+        runtime_versions = {}
+        for spec in args.runtime_version:
+            runtime, sep, version = spec.partition("=")
+            if not sep or not version:
+                print(f"axp: --runtime-version expects RUNTIME=VERSION, got {spec!r}", file=sys.stderr)
+                return 2
+            runtime_versions[runtime] = version
         target, runtime = manifest.select_target(
             data, runtimes=tuple(args.runtime), platform=args.platform,
+            runtime_versions=runtime_versions,
         )
     except manifest.ManifestError as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
     print(json.dumps({"runtime": runtime, "target": target}, indent=2))
+    return 0
+
+
+def _cmd_keydir(args: argparse.Namespace) -> int:
+    keys = []
+    for spec in args.key:
+        # '@' separates the key from its extension names: base64 keys end in '='.
+        public_key, sep, names = spec.partition("@")
+        try:
+            signing._raw_public_key(public_key)
+        except signing.SigningError as exc:
+            print(f"axp: {exc}", file=sys.stderr)
+            return 1
+        entry = {"public_key": public_key}
+        if sep and names:
+            entry["extensions"] = [n for n in names.split(",") if n]
+        keys.append(entry)
+    for public_key in args.revoked:
+        keys.append({"public_key": public_key, "revoked": True})
+    document = {"publisher": args.publisher, "keys": keys}
+    # Round-trip through the parser so a broken document is caught here.
+    signing.parse_key_directory(document, publisher=args.publisher, name=None)
+    text = json.dumps(document, indent=2) + "\n"
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"wrote: {args.output} (serve it at {signing.key_directory_url(args.publisher)})")
+    else:
+        sys.stdout.write(text)
     return 0
 
 
@@ -201,8 +237,9 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--version", dest="set_version", help="explicit new semver")
     group.add_argument("--bump", choices=["major", "minor", "patch"])
     p.add_argument("--channel", help="release channel (default: keep the manifest's)")
-    p.add_argument("--valid-days", type=int, default=30,
-                   help="freshness window for valid_until; 0 drops the field (default: 30)")
+    p.add_argument("--valid-days", type=int, default=180,
+                   help="freshness window for valid_until; 0 drops the field (default: 180 - "
+                        "SPEC 7.4: generous, you commit to re-releasing before it lapses)")
     p.add_argument("--key", help="private key PEM from `axp keygen`; omitting leaves the release unsigned")
     p.add_argument("-o", "--output", help="write here instead of in place")
     p.set_defaults(func=_cmd_release)
@@ -231,7 +268,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--runtime", action="append", required=True,
                    help="host runtimes in preference order (repeatable; add posix last for the fallback)")
     p.add_argument("--platform", help="os/arch, default: this machine")
+    p.add_argument("--runtime-version", action="append", default=[], metavar="RUNTIME=VERSION",
+                   help="the version of a runtime this host runs, e.g. hermes=2026.8 (repeatable); "
+                        "targets whose runtime_version constraint it fails are skipped")
     p.set_defaults(func=_cmd_target)
+
+    p = sub.add_parser("keydir", help="write a publisher key directory (SPEC 8.5) from public keys")
+    p.add_argument("--publisher", required=True)
+    p.add_argument("--key", action="append", required=True, metavar="ed25519:...[@NAME,NAME]",
+                   help="a public key, optionally restricted to extension names after '@' (repeatable)")
+    p.add_argument("--revoked", action="append", default=[], metavar="ed25519:...",
+                   help="a key to list as revoked (repeatable)")
+    p.add_argument("-o", "--output", help="write here (default: stdout)")
+    p.set_defaults(func=_cmd_keydir)
     return parser
 
 

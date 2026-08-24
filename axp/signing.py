@@ -227,26 +227,80 @@ def verify_manifest(manifest: dict, public_key: str | None = None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Trust-On-First-Use pin store (SPEC §8.1, §8.3, §8.4)
+# Publisher key directory (SPEC section 8.5)
+# ---------------------------------------------------------------------------
+
+KEY_DIRECTORY_PATH = "/.well-known/agent-extension-keys.json"
+
+
+def key_directory_url(publisher: str) -> str:
+    return f"https://{publisher}{KEY_DIRECTORY_PATH}"
+
+
+def parse_key_directory(document: object, *, publisher: str, name: str | None) -> list[str]:
+    """The publisher's currently valid keys for extension ``name``.
+
+    Shape::
+
+        {"publisher": "ext.example.com",
+         "keys": [{"public_key": "ed25519:…", "key_id": "…",
+                   "extensions": ["graph-memory"],   # optional: restrict to names
+                   "revoked": false}]}
+
+    Entries whose ``extensions`` list exists but does not contain ``name``
+    and entries marked ``revoked`` are excluded. A document for another
+    publisher, or one that is not an object with a ``keys`` array, is an
+    error — a host must not treat a stray JSON file as a key directory.
+    """
+    if not isinstance(document, dict) or not isinstance(document.get("keys"), list):
+        raise SigningError("key directory is not an object with a keys[] array")
+    if document.get("publisher") and document["publisher"] != publisher:
+        raise SigningError(
+            f"key directory belongs to {document['publisher']!r}, not {publisher!r}"
+        )
+    keys: list[str] = []
+    for entry in document["keys"]:
+        if not isinstance(entry, dict) or entry.get("revoked"):
+            continue
+        scope = entry.get("extensions")
+        if name is not None and isinstance(scope, list) and name not in scope:
+            continue
+        public_key = entry.get("public_key")
+        if isinstance(public_key, str) and _KEY_RE.match(public_key):
+            keys.append(public_key)
+    return keys
+
+
+# ---------------------------------------------------------------------------
+# Trust-On-First-Use pin store (SPEC section 8.1, 8.3, 8.4, 8.5)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class TrustDecision:
-    """What :meth:`PinStore.evaluate` concluded about one candidate manifest.
+    """What :meth:`PinStore.decide` concluded about one candidate manifest.
 
     ``accepted`` is the gate; ``action`` says what happened / must happen:
 
-      pin        first use — key verified against itself and pinned
+      pin        first use — key verified against itself; pin on commit
       same-key   verified against the already-pinned key
-      rotate     dual-signed rotation verified; the pin was moved
-      announce   same-key release that (also) announced a next_key (recorded)
+      announce   same-key release that (also) announced a next_key
+      rotate     dual-signed rotation verified; the pin moves on commit
+      recover    lost-key recovery via the publisher key directory
+                 (accepted only when the host passed allow_recovery=True)
       unsigned   accepted without a signature (never previously pinned)
       refuse     not accepted; ``reason`` says why
+
+    ``entry`` is the pin-store record to persist on commit (None when the
+    decision changes nothing). ``decide`` never writes; a host commits only
+    after the install actually succeeded, so a failed download or hook can
+    never leave a pin behind (SPEC section 8: the pin records what was
+    INSTALLED, not what was merely seen).
     """
 
     accepted: bool
     action: str
     reason: str = ""
+    entry: dict | None = None
 
 
 class PinStore:
@@ -254,6 +308,16 @@ class PinStore:
 
     State per extension id: ``{"public_key": …, "next_key": …|null,
     "was_signed": bool}``. The file is created lazily and written atomically.
+
+    Two-phase use (recommended)::
+
+        decision = store.decide(ext_id, manifest)
+        if decision.accepted:
+            ... download, verify digest, run hooks ...
+            store.commit(ext_id, decision)
+
+    :meth:`evaluate` is decide + commit in one step for hosts that have no
+    later failure point (validation tools, dry runs).
     """
 
     def __init__(self, path: Path | str) -> None:
@@ -272,14 +336,35 @@ class PinStore:
         entry = self._pins.get(ext_id)
         return entry.get("public_key") if entry else None
 
-    def evaluate(self, ext_id: str, manifest: dict, *, allow_unsigned: bool = True) -> TrustDecision:
-        """Run the full §8 trust decision for one candidate manifest and
-        update the pin state on acceptance.
+    def announced_key(self, ext_id: str) -> str | None:
+        entry = self._pins.get(ext_id)
+        return entry.get("next_key") if entry else None
 
-        ``allow_unsigned`` is the host's policy for never-pinned extensions
-        (SPEC §8.4 says install-with-warning; a stricter host passes False).
+    def decide(
+        self,
+        ext_id: str,
+        manifest: dict,
+        *,
+        allow_unsigned: bool = True,
+        directory_keys: list[str] | None = None,
+        allow_recovery: bool = False,
+    ) -> TrustDecision:
+        """Run the section-8 trust decision for one candidate manifest. Pure:
+        nothing is written until :meth:`commit`.
+
+        ``allow_unsigned`` — host policy for never-pinned extensions (SPEC
+        section 8.4 says install-with-warning; a stricter host passes False).
         The signed→unsigned ratchet is not a policy: once pinned, an unsigned
         manifest is always refused.
+
+        ``directory_keys`` — the publisher's key directory (section 8.5) as
+        the host fetched it, or None when it was not consulted. When given,
+        a rotation is accepted only if the new key is listed there (a stolen
+        signing key alone can then no longer move the pin), and a manifest
+        signed by an unannounced key that IS listed while the pinned key is
+        NOT is a lost-key ``recover`` — accepted only with
+        ``allow_recovery=True``, otherwise refused with that action named so
+        the host can ask the user.
         """
         entry = self._pins.get(ext_id)
         signing = manifest.get("signing") or {}
@@ -293,9 +378,8 @@ class PinStore:
                                      "is a trust break (ratchet)")
             if not allow_unsigned:
                 return TrustDecision(False, "refuse", "unsigned manifests are not accepted by this host")
-            self._pins[ext_id] = {"public_key": None, "next_key": None, "was_signed": False}
-            self._save()
-            return TrustDecision(True, "unsigned")
+            return TrustDecision(True, "unsigned",
+                                 entry={"public_key": None, "next_key": None, "was_signed": False})
 
         if not candidate_key:
             return TrustDecision(False, "refuse", "signature present without signing.public_key")
@@ -304,49 +388,89 @@ class PinStore:
 
         if pinned is None:
             # First use (or previously unsigned): trust the manifest's own key.
+            if directory_keys is not None and candidate_key not in directory_keys:
+                return TrustDecision(False, "refuse",
+                                     "signing key is not listed in the publisher's key directory")
             if not verify_manifest(manifest, candidate_key):
                 return TrustDecision(False, "refuse", "signature does not verify against signing.public_key")
-            self._pins[ext_id] = {
+            return TrustDecision(True, "pin", entry={
                 "public_key": candidate_key,
                 "next_key": signing.get("next_key"),
                 "was_signed": True,
-            }
-            self._save()
-            return TrustDecision(True, "pin")
+            })
 
         if candidate_key == pinned:
             if not verify_manifest(manifest, pinned):
                 return TrustDecision(False, "refuse", "signature does not verify against the pinned key")
             # Record (or clear) a rotation announcement carried by this release.
-            self._pins[ext_id]["next_key"] = signing.get("next_key")
-            self._save()
-            return TrustDecision(True, "announce" if signing.get("next_key") else "same-key")
+            new_entry = {**entry, "next_key": signing.get("next_key")}
+            return TrustDecision(True, "announce" if signing.get("next_key") else "same-key",
+                                 entry=new_entry)
 
-        # Different key: only a valid dual-signed rotation may move the pin.
+        # Different key. Only a valid dual-signed rotation may move the pin —
+        # and, when the publisher's key directory was consulted, only to a key
+        # the publisher lists there (section 8.5).
         announced = entry.get("next_key") if entry else None
-        if candidate_key != announced:
-            return TrustDecision(False, "refuse",
-                                 "key changed without an announced rotation "
-                                 "(signing.next_key); refusing — possible key compromise")
-        signature_prev = manifest.get("signature_prev")
-        if not signature_prev:
-            return TrustDecision(False, "refuse",
-                                 "rotation release must be dual-signed (signature_prev by the pinned key)")
         payload = jcs.signing_input(manifest)
-        if not verify_bytes(payload, signature_prev, pinned):
-            return TrustDecision(False, "refuse", "signature_prev does not verify against the pinned key")
-        if not verify_bytes(payload, signature, candidate_key):
-            return TrustDecision(False, "refuse", "signature does not verify against the announced new key")
-        self._pins[ext_id] = {
-            "public_key": candidate_key,
-            "next_key": signing.get("next_key"),
-            "was_signed": True,
-        }
-        self._save()
-        return TrustDecision(True, "rotate")
+        if candidate_key == announced:
+            signature_prev = manifest.get("signature_prev")
+            if not signature_prev:
+                return TrustDecision(False, "refuse",
+                                     "rotation release must be dual-signed (signature_prev by the pinned key)")
+            if directory_keys is not None and candidate_key not in directory_keys:
+                return TrustDecision(False, "refuse",
+                                     "announced key is not listed in the publisher's key directory; "
+                                     "refusing the rotation")
+            if not verify_bytes(payload, signature_prev, pinned):
+                return TrustDecision(False, "refuse", "signature_prev does not verify against the pinned key")
+            if not verify_bytes(payload, signature, candidate_key):
+                return TrustDecision(False, "refuse", "signature does not verify against the announced new key")
+            return TrustDecision(True, "rotate", entry={
+                "public_key": candidate_key,
+                "next_key": signing.get("next_key"),
+                "was_signed": True,
+            })
+
+        if (directory_keys is not None and candidate_key in directory_keys
+                and pinned not in directory_keys):
+            # Lost-key recovery: the publisher's domain now vouches for the
+            # new key and no longer for the pinned one. Never silent.
+            if not verify_bytes(payload, signature, candidate_key):
+                return TrustDecision(False, "refuse", "signature does not verify against the directory-listed key")
+            new_entry = {"public_key": candidate_key, "next_key": signing.get("next_key"),
+                         "was_signed": True}
+            if not allow_recovery:
+                return TrustDecision(False, "recover",
+                                     "the publisher replaced their signing key without a rotation "
+                                     "(key directory lists the new key, not the pinned one); "
+                                     "explicit re-trust is required", entry=new_entry)
+            return TrustDecision(True, "recover", entry=new_entry)
+
+        return TrustDecision(False, "refuse",
+                             "key changed without an announced rotation "
+                             "(signing.next_key); refusing — possible key compromise")
+
+    def commit(self, ext_id: str, decision: TrustDecision) -> None:
+        """Persist an accepted decision's pin state. A refused decision is a
+        programming error to commit."""
+        if not decision.accepted:
+            raise SigningError(f"cannot commit a refused trust decision ({decision.reason})")
+        if decision.entry is not None:
+            self._pins[ext_id] = dict(decision.entry)
+            self._save()
+
+    def evaluate(self, ext_id: str, manifest: dict, *, allow_unsigned: bool = True,
+                 directory_keys: list[str] | None = None,
+                 allow_recovery: bool = False) -> TrustDecision:
+        """decide + commit in one step."""
+        decision = self.decide(ext_id, manifest, allow_unsigned=allow_unsigned,
+                               directory_keys=directory_keys, allow_recovery=allow_recovery)
+        if decision.accepted:
+            self.commit(ext_id, decision)
+        return decision
 
     def forget(self, ext_id: str) -> None:
-        """Explicit user re-trust (lost key, SPEC §8.3): drop the pin so the
+        """Explicit user re-trust (lost key, SPEC section 8.3): drop the pin so the
         next install is a fresh TOFU. Never called automatically."""
         self._pins.pop(ext_id, None)
         self._save()

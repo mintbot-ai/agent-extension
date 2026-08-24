@@ -89,3 +89,72 @@ def test_pin_store_unsigned_policy(tmp_path, example):
     eid = ext_id(example)
     assert store.evaluate(eid, unsigned, allow_unsigned=False).accepted is False
     assert store.evaluate(eid, unsigned).action == "unsigned"
+
+
+def test_decide_is_pure_and_commit_persists(tmp_path, example, keypair):
+    store = signing.PinStore(tmp_path / "pins.json")
+    eid = ext_id(example)
+    decision = store.decide(eid, _signed(example, keypair))
+    assert decision.accepted and decision.action == "pin" and decision.entry
+    assert store.pinned_key(eid) is None and not (tmp_path / "pins.json").exists()
+    store.commit(eid, decision)
+    assert store.pinned_key(eid) == keypair[1]
+    with pytest.raises(signing.SigningError):
+        store.commit(eid, signing.TrustDecision(False, "refuse", "nope"))
+
+
+def test_key_directory_gates_rotation_and_enables_recovery(tmp_path, example, keypair, keypair2):
+    from axp import jcs
+    store = signing.PinStore(tmp_path / "pins.json")
+    eid = ext_id(example)
+    pem1, pub1 = keypair
+    pem2, pub2 = keypair2
+    assert store.evaluate(eid, _signed(example, keypair)).action == "pin"
+
+    # Announce + dual-sign, but the publisher directory does NOT list the new
+    # key -> a stolen key alone cannot move the pin.
+    assert store.evaluate(eid, _signed(example, keypair, next_key=pub2)).action == "announce"
+    rotation = _signed(example, keypair2)
+    rotation["signature_prev"] = signing.sign_bytes(jcs.signing_input(rotation), pem1)
+    refused = store.decide(eid, rotation, directory_keys=[pub1])
+    assert not refused.accepted and "key directory" in refused.reason
+    # Listed -> accepted; not consulted (None) -> classic behaviour.
+    assert store.decide(eid, rotation, directory_keys=[pub1, pub2]).action == "rotate"
+    assert store.decide(eid, rotation).action == "rotate"
+
+    # Lost key: no announcement, directory now lists only the new key.
+    store = signing.PinStore(tmp_path / "pins2.json")
+    assert store.evaluate(eid, _signed(example, keypair)).action == "pin"
+    fresh = _signed(example, keypair2)
+    plain = store.decide(eid, fresh)
+    assert not plain.accepted and plain.action == "refuse"
+    offered = store.decide(eid, fresh, directory_keys=[pub2])
+    assert not offered.accepted and offered.action == "recover"   # host must ask the user
+    granted = store.decide(eid, fresh, directory_keys=[pub2], allow_recovery=True)
+    assert granted.accepted and granted.action == "recover"
+    # Directory still vouching for the pinned key -> NOT a recovery, a compromise.
+    both = store.decide(eid, fresh, directory_keys=[pub1, pub2], allow_recovery=True)
+    assert not both.accepted and both.action == "refuse"
+
+
+def test_first_use_honours_directory_when_consulted(tmp_path, example, keypair, keypair2):
+    store = signing.PinStore(tmp_path / "pins.json")
+    eid = ext_id(example)
+    decision = store.decide(eid, _signed(example, keypair), directory_keys=[keypair2[1]])
+    assert not decision.accepted and "not listed" in decision.reason
+
+
+def test_parse_key_directory():
+    doc = {"publisher": "pub.example", "keys": [
+        {"public_key": "ed25519:" + "A" * 43 + "=", "key_id": "a"},
+        {"public_key": "ed25519:" + "B" * 43 + "=", "extensions": ["other"]},
+        {"public_key": "ed25519:" + "C" * 43 + "=", "revoked": True},
+        {"public_key": "rsa:nope"},
+        "garbage",
+    ]}
+    assert signing.parse_key_directory(doc, publisher="pub.example", name="mine") == ["ed25519:" + "A" * 43 + "="]
+    with pytest.raises(signing.SigningError):
+        signing.parse_key_directory(doc, publisher="evil.example", name="mine")
+    with pytest.raises(signing.SigningError):
+        signing.parse_key_directory(["not", "a", "directory"], publisher="pub.example", name="mine")
+    assert signing.key_directory_url("pub.example") == "https://pub.example/.well-known/agent-extension-keys.json"

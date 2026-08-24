@@ -15,22 +15,38 @@ package or the ``openssl`` binary — whichever the host has.
 """
 
 from .jcs import JCSError, canonicalize, signing_input
+from .updates import PolicyError, channel_accepts, is_expired, parse_policy, permissions_widened
+from .versions import VersionError, compare, is_newer, parse_constraint, satisfies
 from .manifest import ManifestError, ext_id, host_platform, is_axp_manifest, select_target, validate
 from .signing import (
     PinStore,
     SigningError,
     TrustDecision,
     generate_private_key_pem,
+    key_directory_url,
+    parse_key_directory,
     public_key_from_private,
     sign_manifest,
     verify_manifest,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "JCSError",
     "ManifestError",
+    "PolicyError",
+    "VersionError",
+    "channel_accepts",
+    "compare",
+    "is_expired",
+    "is_newer",
+    "key_directory_url",
+    "parse_key_directory",
+    "parse_constraint",
+    "parse_policy",
+    "permissions_widened",
+    "satisfies",
     "PinStore",
     "SigningError",
     "TrustDecision",

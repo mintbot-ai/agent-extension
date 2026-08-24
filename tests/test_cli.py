@@ -39,6 +39,19 @@ def test_keygen_validate_sign_verify_target(tmp_path, example, capsys):
     capsys.readouterr()
 
 
+def test_keydir_cli(tmp_path, capsys):
+    key = "ed25519:" + "A" * 43 + "="
+    out = tmp_path / "keys.json"
+    assert cli.main(["keydir", "--publisher", "pub.example", "--key", key + "@graph-memory,other",
+                     "--revoked", "ed25519:" + "B" * 43 + "=", "-o", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert doc["publisher"] == "pub.example"
+    assert doc["keys"][0] == {"public_key": key, "extensions": ["graph-memory", "other"]}
+    assert doc["keys"][1]["revoked"] is True
+    assert "agent-extension-keys.json" in capsys.readouterr().out
+    assert cli.main(["keydir", "--publisher", "pub.example", "--key", "rsa:nope"]) == 1
+
+
 def test_target_selection_cli(tmp_path, example, capsys):
     manifest_path = tmp_path / "m.json"
     manifest_path.write_text(json.dumps(example))
@@ -48,3 +61,10 @@ def test_target_selection_cli(tmp_path, example, capsys):
     assert picked["runtime"] == "hermes"
     assert cli.main(["target", str(manifest_path), "--runtime", "openclaw",
                      "--platform", "linux/amd64"]) == 1
+    capsys.readouterr()
+    # runtime_version constraint on the hermes target (>=2026.6 in the example) is honoured.
+    assert cli.main(["target", str(manifest_path), "--runtime", "hermes", "--runtime", "posix",
+                     "--platform", "linux/amd64", "--runtime-version", "hermes=2026.5"]) == 0
+    assert json.loads(capsys.readouterr().out)["runtime"] == "posix"
+    assert cli.main(["target", str(manifest_path), "--runtime", "hermes",
+                     "--platform", "linux/amd64", "--runtime-version", "bogus"]) == 2

@@ -1,13 +1,16 @@
-# Agent Extension Protocol (AXP) — SPEC v0.3 (DRAFT)
+# Agent Extension Protocol (AXP) — SPEC v0.4 (DRAFT)
 
-> Status: **draft, for review.** v0.3 is the *universality* revision: it removes
-> every runtime-specific assumption from the core (publisher-namespaced
-> identity, a runtime-neutral `posix` target with `archive` delivery, a
-> standard host→script environment contract, host-retained artifacts,
+> Status: **draft, for review.** v0.3 was the *universality* revision (publisher-
+> namespaced identity, the runtime-neutral `posix` target with `archive`
+> delivery, the host→script environment contract, host-retained artifacts,
 > runtime-neutral permission scopes, MCP servers as a first-class component,
-> an explicit forward-compatibility rule, and host conformance profiles).
-> Runtime specifics now live in [`docs/runtimes/`](docs/runtimes/). Field names
-> may still change before v1.0; see §13 for the v0.2 → v0.3 migration.
+> the forward-compatibility rule, host conformance profiles). v0.4 is the
+> *hardening* revision, additive only: the publisher key directory as a
+> second trust channel for key rotation and lost-key recovery (§8.5), a
+> precise tracked-channel rule (§7.2), freshness guidance that does not
+> nag (§7.4), pinned environment semantics (§6.2), and the consent ratchet
+> for updates (§7.6). Runtime specifics live in [`docs/runtimes/`](docs/runtimes/).
+> Field names may still change before v1.0; see §13 for migrations.
 
 ## 1. Purpose
 
@@ -301,9 +304,11 @@ me this way — and here is how far I can be sandboxed here.*
 ```
 
 The host picks the **first** target whose `runtime` it implements, whose
-`runtime_version` it satisfies and whose `platforms` include the machine. If
-none matches but a `posix` target does, a POSIX host MAY use it (§5.1). If
-nothing matches the host says "no target for this runtime" — never guesses.
+`runtime_version` constraint its runtime version satisfies (§4.3 grammar; a
+host that does not know its runtime version cannot refuse on it) and whose
+`platforms` include the machine. If none matches but a `posix` target does, a
+POSIX host MAY use it (§5.1). If nothing matches the host says "no target for
+this runtime" — and names which entries it skipped and why — never guesses.
 
 ### 5.1 Runtime ids and the `posix` baseline
 
@@ -377,8 +382,8 @@ them are set (§10), using the listed defaults.
 
 | variable              | set on       | meaning / default when unset                                  |
 |-----------------------|--------------|---------------------------------------------------------------|
-| `AXP_SPEC_VERSION`    | all          | spec version the host speaks (`0.3`)                          |
-| `AXP_HOST`            | all          | host implementation id + version (`mintbot/2026.8`, `axp-cli/0.3.1`) |
+| `AXP_SPEC_VERSION`    | all          | the spec version the HOST implements (`0.4`) — not the manifest's |
+| `AXP_HOST`            | all          | `<host-id>/<host-version>` (`mintbot/2026.8`, `axp-cli/0.4.0`) |
 | `AXP_RUNTIME`         | all          | runtime id of the chosen target (`posix`, `hermes`, …)         |
 | `AXP_RUNTIME_VERSION` | all          | runtime version if known                                       |
 | `AXP_ENFORCEMENT`     | all          | tier actually applied to this run (`declared\|advisory\|enforced`) |
@@ -391,7 +396,7 @@ them are set (§10), using the listed defaults.
 | `AXP_PREFIX`          | all          | suggested install prefix; default `/opt/<name>` (root) or `~/.local/opt/<name>` |
 | `AXP_STATE_DIR`       | all          | durable data dir (scope `state`); default `/var/lib/axp/<publisher>/<name>` or `~/.local/state/axp/<publisher>/<name>` |
 | `AXP_CACHE_DIR`       | all          | disposable cache dir (scope `cache`); default `$XDG_CACHE_HOME/axp/<publisher>/<name>` |
-| `AXP_ARTIFACT_DIR`    | all          | the retained unpacked artifact (§6.1); default = script's own dir |
+| `AXP_ARTIFACT_DIR`    | all          | the unpacked artifact the running hook belongs to: the staging dir during `install`/`upgrade` (retention happens after success, §6.1), the retained dir for `uninstall`/`health`; default = script's own dir |
 | `AXP_CONFIG_FILE`     | install, upgrade | path to a 0600 **dotenv-format** file with the user's config values incl. secrets (§6.3); unset = use defaults / prompt |
 | `AXP_PURGE`           | uninstall    | `1` = also delete `AXP_STATE_DIR`; default `0` (keep user data)  |
 | `AXP_NONINTERACTIVE`  | all          | `1` = never prompt (host-driven run); default unset (may prompt on a TTY) |
@@ -477,6 +482,12 @@ tracking `beta` accepts `beta` and `stable`. `stable` is the default. Custom
 channels (`lts`, `canary`) are opaque: delivered only to hosts that track that
 exact name.
 
+The **tracked channel** is host state, recorded at install from the installed
+release's `release.channel` (or the user's choice) and preserved across
+updates. It is NOT the channel of whatever release happens to be installed:
+a host tracking `beta` that applies a `stable` release keeps tracking `beta`
+and keeps offering betas afterwards.
+
 ### 7.3 Cadence
 
 `updates.check` (`hourly|daily|weekly|manual`) is a hint. Cadence is the
@@ -488,13 +499,32 @@ host's decision; default daily plus an on-demand check.
   channel. Downgrade is an explicit, interactive user action.
 - `release.valid_until` inside the signed manifest defeats freeze attacks: a
   host that sees its installed manifest expire (beyond a grace window it
-  chooses, e.g. 7 days) warns that it may be held back.
+  chooses, e.g. 7 days) warns that it may be held back. It is **optional**
+  and a *warning*, never a block. Publishers who set it commit to shipping a
+  fresh manifest before it lapses, so windows SHOULD be generous (≥ 90 days;
+  tooling defaults to 180) unless releases are frequent. A host SHOULD raise
+  the warning when the manifest first expires and then no more than about
+  once a month while it stays expired — a nightly nag trains users to ignore
+  the one warning that matters. A *candidate* manifest that is already
+  expired is refused (it is not a valid release any more).
 
 ### 7.5 Per-extension policy
 
 Stored by the host per extension id: `auto` | `notify` | `pin=X.Y.Z` | `off`.
 The manifest's `updates.policy` is the starting value shown at install; the
 user's stored choice always wins afterwards.
+
+### 7.6 Updates and consent (the ratchet)
+
+Consent is given to a permission surface, not to a publisher. A Managed host
+MUST NOT apply an update whose `permissions` widen what the user approved —
+new egress hosts or ports, new listeners, new or broader filesystem scopes
+(`state:r` → `state:rw`), new secrets, or `root` — without a fresh consent,
+not even on a user-triggered "update now". Narrowing never needs consent.
+Coverage rules: a bare `host` covers every port of that host; `*.example.com`
+covers every host under it (not the apex); an ingress entry without an
+address covers every address; `rw` covers `r`. The reference implementation
+(`axp.updates.permissions_widened`) is normative for these rules.
 
 ## 8. Signing & trust
 
@@ -542,6 +572,49 @@ explicit user re-trust (fresh TOFU). That is the safe outcome.
 Install with a clear warning. **Ratchet:** once installed signed, a later
 unsigned manifest for the same id MUST NOT be accepted silently.
 
+### 8.5 The publisher key directory (second channel)
+
+TOFU plus announce-then-dual-sign has one weak spot: whoever steals the
+current signing key can announce a successor and rotate every host to a key
+they control. And a publisher who *loses* the key has no path back except
+asking every user to re-trust by hand. Both are fixed by a second channel the
+attacker must also control — the publisher's own domain.
+
+A publisher SHOULD serve
+**`https://<publisher>/.well-known/agent-extension-keys.json`**:
+
+```jsonc
+{
+  "publisher": "ext.example.com",
+  "keys": [
+    { "public_key": "ed25519:…", "key_id": "graph-memory-2026",
+      "extensions": ["graph-memory"],   // optional: restrict to these names
+      "revoked": false }
+  ]
+}
+```
+
+A Trusted host SHOULD fetch it (HTTPS, same SSRF rules as any fetch) whenever
+a manifest's key differs from the pinned key, and then:
+
+- **Rotation** (§8.3, dual-signed, announced): accepted only if the new key is
+  listed. A stolen key alone no longer moves the pin.
+- **Recovery** (no announcement): if the directory lists the new key and no
+  longer lists the pinned key, the manifest verifies against the new key, and
+  the host has the user's explicit permission, the host MAY re-pin. This is
+  never silent — it is the interactive re-trust §8.3 requires, with the
+  publisher's domain vouching instead of the user guessing. If the directory
+  still lists the pinned key, the situation is a compromise, not a recovery:
+  refuse.
+- **First use**: a host MAY consult the directory and refuse to pin a key it
+  does not list (strict mode).
+
+If the directory is unreachable the host MUST NOT guess: treat the rotation
+as *deferred* (retry on the next check, keep the old pin) rather than either
+accepting or permanently refusing. A publisher without a directory gets the
+§8.3 behaviour unchanged. The directory is fetched from the publisher domain
+of the *installed record*, never from a URL inside the candidate manifest.
+
 ## 9. Trust boundary of the manifest origin
 
 The signature proves *who published*; the origin proves *where it came from*.
@@ -581,8 +654,8 @@ ones before it.
 | profile       | MUST                                                                                       |
 |---------------|--------------------------------------------------------------------------------------------|
 | **Core**      | read v0.x manifests per §2.4; select a target (§5, incl. `posix` fallback); support `archive`; verify sha256; run lifecycle hooks with the §6 contract; retain the artifact (§6.1); show `permissions` for consent before any script runs; record the install (id, version, digest, enforcement actually applied). |
-| **Trusted**   | verify signatures (§8), pin on first use under the extension id, enforce the same-key rule, rotation, the unsigned ratchet, and `valid_until` warnings. |
-| **Managed**   | resolve all three `updates.source` kinds; track channels; per-extension policy; monotonic apply with `upgrade` + `AXP_FROM_VERSION`; run `health` after install/upgrade and on a schedule; refuse when `requires.extensions` are missing and name them. |
+| **Trusted**   | verify signatures (§8), pin on first use under the extension id, enforce the same-key rule, rotation, the unsigned ratchet, and `valid_until` warnings; SHOULD consult the publisher key directory on rotation (§8.5) and defer when it is unreachable. |
+| **Managed**   | resolve all three `updates.source` kinds; track the channel as host state (§7.2); per-extension policy; monotonic apply with `upgrade` + `AXP_FROM_VERSION`; the consent ratchet (§7.6); run `health` after install/upgrade and on a schedule; evaluate `runtime_version` and `requires.extensions` with the §4.3 grammar and refuse when a hard dependency is missing, naming it. |
 | **Sandboxed** | apply at least the `advisory` tier to lifecycle hooks derived from `permissions` (egress allow-list incl. resolvers and the publisher's hosts; read-only tree except declared scopes, install prefix, state/cache); report downgrades honestly; `enforced` for runtime code where the runtime allows it. |
 
 A conformance test-suite lives in `conformance/` (see repo README); a host
@@ -602,7 +675,16 @@ which enforcement tier it can offer — lives in one document per runtime under
 
 Adding a runtime = adding a profile document. The core spec does not change.
 
-## 13. Migration v0.2 → v0.3
+## 13. Migration
+
+### v0.3 → v0.4 (additive)
+
+No manifest field changed meaning. New, all optional: the publisher key
+directory (§8.5) at a well-known URL; hosts gain the tracked-channel rule
+(§7.2), the freshness cadence (§7.4) and the consent ratchet (§7.6). A v0.3
+manifest is a valid v0.4 manifest; `spec_version: "0.3"` stays valid.
+
+### v0.2 → v0.3
 
 | v0.2                                   | v0.3                                                                 |
 |----------------------------------------|----------------------------------------------------------------------|

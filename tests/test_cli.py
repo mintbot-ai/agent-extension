@@ -62,9 +62,9 @@ def test_target_selection_cli(tmp_path, example, capsys):
     assert cli.main(["target", str(manifest_path), "--runtime", "openclaw",
                      "--platform", "linux/amd64"]) == 1
     capsys.readouterr()
-    # runtime_version constraint on the hermes target (>=2026.6 in the example) is honoured.
+    # runtime_version constraint on the hermes target (>=0.18 in the example) is honoured.
     assert cli.main(["target", str(manifest_path), "--runtime", "hermes", "--runtime", "posix",
-                     "--platform", "linux/amd64", "--runtime-version", "hermes=2026.5"]) == 0
+                     "--platform", "linux/amd64", "--runtime-version", "hermes=0.17.9"]) == 0
     assert json.loads(capsys.readouterr().out)["runtime"] == "posix"
     assert cli.main(["target", str(manifest_path), "--runtime", "hermes",
                      "--platform", "linux/amd64", "--runtime-version", "bogus"]) == 2

@@ -6,8 +6,10 @@ Hermes host reads both.
 
 ## Runtime id / version
 
-`runtime: "hermes"`. `runtime_version` is Hermes's calver (`2026.6`), matched
-with the SPEC §4.3 grammar (`>=2026.6`).
+`runtime: "hermes"`. `runtime_version` is the Hermes **package version** —
+what `hermes --version` prints first (`Hermes Agent v0.20.0 (2026.8.3)` →
+`0.20.0`) and what `hermes_cli.__version__` exposes — matched with the SPEC §4.3
+grammar (`>=0.18`). The parenthesised release date is not the version.
 
 ## Delivery
 
@@ -52,8 +54,9 @@ SPEC §6.2 plus `AXP_HERMES_HOME` (= `HERMES_HOME`) and `AXP_HERMES_VERSION`.
 ## Enforcement
 
 - `advisory` for lifecycle scripts (systemd-run sandbox derived from
-  `permissions`; see posix profile). `root: true` → filesystem half off,
-  wildcard egress → network half off, no systemd → `declared`; all recorded.
+  `permissions`; see posix profile). Egress is enforced **by name** through a
+  host-run allow-list proxy, so wildcards are enforced too. `root: true` →
+  filesystem half off, no systemd → `declared`; all recorded.
 - Runtime code of a Hermes plugin executes inside the Hermes process and is
   **not** contained; a Hermes host never reports `enforced`.
 

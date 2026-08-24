@@ -274,8 +274,8 @@ not know (they can never *widen* access) and tells the user it did so.
 
 A host MUST NOT advertise a higher tier than it implements, MUST report the
 tier it actually applied in the install record, and SHOULD record *why* it
-downgraded (e.g. "root requested → filesystem not sandboxed", "wildcard egress
-→ network not filtered"). The declared `permissions` block is identical across
+downgraded (e.g. "root requested → filesystem not sandboxed", "no systemd →
+declared"). The declared `permissions` block is identical across
 tiers; only the guarantee differs.
 
 ## 5. Layer 2 — `targets[]` (concrete per-runtime install recipes)
@@ -286,7 +286,7 @@ me this way — and here is how far I can be sandboxed here.*
 ```jsonc
 {
   "runtime": "posix",                 // §5.1 runtime id
-  "runtime_version": ">=2026.6",      // §4.3 grammar; omit for posix
+  "runtime_version": ">=0.18",        // §4.3 grammar, in the runtime's own version scheme; omit for posix
   "platforms": ["linux/amd64", "linux/arm64"],   // GOOS/GOARCH style; omit = any
   "enforcement": "declared",          // §4.4 tier the publisher *expects* this runtime to provide
 

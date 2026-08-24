@@ -131,7 +131,7 @@
     "policy": "notify"
   },
   "signing": {
-    "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
+    "public_key": "ed25519:QGAu840A3hi6FXcNtOL9UT/aPkmIg2XUKXW/l/mY++0=",
     "key_id": "graph-memory-2026",
     "next_key": null
   },
@@ -179,7 +179,7 @@
     },
     {
       "runtime": "hermes",
-      "runtime_version": ">=2026.6",
+      "runtime_version": ">=0.18",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -250,5 +250,5 @@
       }
     }
   ],
-  "signature": "HNlTusczQWOju8YRPYd3ly1L5iZFIuHtDvuB4iSdAmgSIfKxzzr28/dW4gGPNbSBlCtkc96da8We6ztrS655BQ=="
+  "signature": "8t9+DysVr2E/IApwdsTum0MtzthxRWTuePBasp7xZr63HFElN8O2vx3pT7JQR5ocjwXRDoXh1xV5BsEM2jjWCQ=="
 }

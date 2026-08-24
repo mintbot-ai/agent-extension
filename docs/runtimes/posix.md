@@ -49,9 +49,13 @@ as informational, except:
 ## Enforcement
 
 `declared` by default. A host with systemd MAY offer `advisory` for the
-lifecycle scripts (transient unit with `IPAddressDeny/Allow` from
-`network_egress` + resolvers + publisher hosts, `ProtectSystem=strict` +
-`ReadWritePaths` for `AXP_PREFIX`, `AXP_STATE_DIR`, `AXP_CACHE_DIR`,
-`AXP_ARTIFACT_DIR` and declared `:rw` scopes, `PrivateTmp`). `root: true`
-disables the filesystem half, wildcard egress disables the network half;
-both are recorded. `enforced` is out of scope for `posix`.
+lifecycle scripts: a transient unit whose only reachable address is a
+host-run egress proxy that decides **by name and port** against
+`network_egress` (wildcards included) plus the publisher's own hosts, and
+which refuses names that resolve to internal ranges (`IPAddressDeny=any` +
+`IPAddressAllow=<proxy>`, declared IP literals and the extension's own
+listeners; `HTTPS_PROXY`/`HTTP_PROXY` point at the proxy). Filesystem:
+`ProtectSystem=strict` + `ReadWritePaths` for `AXP_PREFIX`, `AXP_STATE_DIR`,
+`AXP_CACHE_DIR`, `AXP_ARTIFACT_DIR` and declared `:rw` scopes, `PrivateTmp`.
+`root: true` disables the filesystem half; it is recorded. `enforced` is out
+of scope for `posix`.

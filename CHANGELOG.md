@@ -24,6 +24,11 @@
   the key directory document.
 - Conformance: Trusted profile gains the key-directory rotation case
   (optional adapter method `evaluate_trust_with_directory`).
+- Runtime profiles: `hermes` `runtime_version` is the Hermes package version
+  (`0.20.0`), not the release date; the graph-memory example now says
+  `>=0.18` (re-signed). Advisory enforcement is described as name-based
+  egress through a host-run proxy (wildcards enforced) — the
+  "wildcard → network not filtered" downgrade is gone.
 
 - Publisher tooling: `axp init` writes a structurally valid v0.3 manifest
   skeleton (all-zero digest placeholders, posix target by default) and

@@ -43,7 +43,10 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
   `openclaw`, `claude-code`). Adding a runtime = adding a profile document.
 - [`examples/graph-memory/`](examples/graph-memory/) — a complete worked
   example with `posix`, `hermes` and `claude-code` targets and standalone
-  lifecycle scripts.
+  lifecycle scripts. It is a neutral spec fixture (the conformance tests use
+  it); the real, published package lives in
+  [mintbot-ai/graph-memory](https://github.com/mintbot-ai/graph-memory)
+  (`mintbot.ai/graph-memory`), released with `axp release`.
 - [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Reference implementation: the `axp` package

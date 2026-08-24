@@ -42,3 +42,32 @@ def test_floats_and_unsafe_ints_are_refused():
 def test_signing_input_strips_signatures_only():
     manifest = {"kind": "agent-extension", "signature": "sig", "signature_prev": "old", "z": 1}
     assert jcs.signing_input(manifest) == b'{"kind":"agent-extension","z":1}'
+
+
+def test_nested_and_empty_containers():
+    assert jcs.canonicalize({"a": [{"b": [[]]}], "": ""}) == b'{"":"","a":[{"b":[[]]}]}'
+    assert jcs.canonicalize([]) == b"[]" and jcs.canonicalize({}) == b"{}"
+    assert jcs.canonicalize([True, 1]) == b"[true,1]"   # bools never collapse into ints
+
+
+def test_keys_are_escaped_and_unicode_keys_kept_literal():
+    assert jcs.canonicalize({'a"b': 1}) == b'{"a\\"b":1}'
+    assert jcs.canonicalize({"õ": 1, "a": 2}) == '{"a":2,"õ":1}'.encode()
+    assert jcs.canonicalize("\x7f") == b'"\x7f"'  # DEL is not a C0 control: literal
+
+
+def test_unsupported_types_are_refused_by_name():
+    with pytest.raises(jcs.JCSError, match="not a string"):
+        jcs.canonicalize({1: "x"})
+    with pytest.raises(jcs.JCSError, match="type set"):
+        jcs.canonicalize({"a": {1, 2}})
+    with pytest.raises(jcs.JCSError, match="type bytes"):
+        jcs.canonicalize(b"raw")
+    with pytest.raises(jcs.JCSError):
+        jcs.canonicalize({"nested": [{"deep": 0.5}]})
+
+
+def test_signing_input_is_stable_under_key_order():
+    a = {"signature": "s", "z": 1, "a": {"y": [1], "x": None}}
+    b = {"a": {"x": None, "y": [1]}, "z": 1, "signature": "other"}
+    assert jcs.signing_input(a) == jcs.signing_input(b)

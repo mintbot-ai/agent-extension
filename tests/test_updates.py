@@ -73,3 +73,47 @@ def test_parse_scope():
     assert u.parse_scope("state:rw") == (None, "state", "rw")
     assert u.parse_scope("hermes:skills:r") == ("hermes", "skills", "r")
     assert u.parse_scope("state") == (None, "state", "r")
+
+
+def test_coverage_helpers_edge_cases():
+    # A port-restricted grant does not cover the bare (any-port) request.
+    assert not u._egress_covers("api.test:443", "api.test")
+    assert u._egress_covers("api.test", "api.test:443")
+    assert u._egress_covers("API.test", "api.TEST:80")
+    # Wildcards carry their port restriction too.
+    assert u._egress_covers("*.hf.test:443", "x.hf.test:443")
+    assert not u._egress_covers("*.hf.test:443", "x.hf.test")
+    assert not u._egress_covers("*.hf.test", "notahf.test")
+    # Ingress: an address-bound grant covers only that address.
+    assert u._ingress_covers("6379/tcp", "127.0.0.1:6379/tcp")
+    assert not u._ingress_covers("127.0.0.1:6379/tcp", "6379/tcp")
+    assert not u._ingress_covers("127.0.0.1:6379/tcp", "10.0.0.1:6379/tcp")
+    assert not u._ingress_covers("6379/tcp", "6379/udp")
+    # Scopes: runtime namespace is part of the identity.
+    assert u._scope_covers("state:rw", "state:r")
+    assert not u._scope_covers("state:r", "state:rw")
+    assert not u._scope_covers("hermes:skills:rw", "skills:rw")
+
+
+def test_parse_timestamp_normalises_to_utc():
+    assert u.parse_timestamp(None) is None and u.parse_timestamp("") is None
+    assert u.parse_timestamp("nope") is None
+    naive = u.parse_timestamp("2026-08-24T10:00:00")
+    assert naive is not None and naive.tzinfo is timezone.utc
+    zulu = u.parse_timestamp("2026-08-24T10:00:00Z")
+    assert zulu == datetime(2026, 8, 24, 10, tzinfo=timezone.utc)
+    offset = u.parse_timestamp("2026-08-24T12:00:00+02:00")
+    assert offset == zulu
+
+
+def test_is_expired_reads_naive_timestamps_as_utc():
+    doc = {"release": {"valid_until": (_NOW - timedelta(days=10)).replace(tzinfo=None).isoformat()}}
+    assert u.is_expired(doc, now=_NOW) is True
+    assert u.is_expired({}, now=_NOW) is False
+
+
+def test_permissions_widened_ignores_case_and_empty_blocks():
+    assert u.permissions_widened({"network_egress": ["API.test"]}, {"network_egress": ["api.TEST:443"]}) == []
+    assert u.permissions_widened({}, {}) == []
+    assert u.permissions_widened(None, None) == []
+    assert u.permissions_widened({"network_ingress": ["6379/tcp"]}, {"network_ingress": ["127.0.0.1:6379/tcp"]}) == []

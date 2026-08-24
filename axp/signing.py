@@ -324,7 +324,12 @@ class PinStore:
         self._path = Path(path)
         self._pins: dict[str, dict] = {}
         if self._path.exists():
-            self._pins = json.loads(self._path.read_text(encoding="utf-8"))
+            loaded = json.loads(self._path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                # A stray list/scalar must not masquerade as an empty store:
+                # treating it as "nothing pinned" would silently disable TOFU.
+                raise ValueError("pin store is not a JSON object")
+            self._pins = loaded
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

@@ -63,3 +63,27 @@ def test_constraint_grammar_errors():
 def test_sort_key_matches_compare():
     items = ["1.2.0", "1.2.0-rc.1", "1.10.0", "2026.6", "1.2.0-rc.10", "0.9"]
     assert sorted(items, key=v.sort_key) == ["0.9", "1.2.0-rc.1", "1.2.0-rc.10", "1.2.0", "1.10.0", "2026.6"]
+
+
+def test_caret_and_tilde_on_short_and_zero_versions():
+    assert v.satisfies("0.0.3", "^0.0.3") and not v.satisfies("0.0.4", "^0.0.3")
+    assert v.satisfies("0.2.9", "^0.2") and not v.satisfies("0.3.0", "^0.2")
+    assert v.satisfies("1.9.9", "^1") and not v.satisfies("2.0.0", "^1")
+    assert v.satisfies("2.5", "~2") and not v.satisfies("3.0", "~2")
+    assert v.satisfies("2026.6.9", "~2026.6") and not v.satisfies("2026.7", "~2026.6")
+    assert v.satisfies("1.2.0-rc.1", ">=1.2.0-rc.1 <1.2.0")
+
+
+def test_compare_accepts_parsed_versions_and_str_roundtrip():
+    parsed = v.parse("1.0")
+    assert str(parsed) == "1.0"
+    assert v.compare(parsed, "1.0.0") == 0 and v.compare("1.0.0", parsed) == 0
+    assert v.compare(v.parse("1.0.0-alpha.1"), v.parse("1.0.0-alpha.beta")) < 0
+    assert v.satisfies(parsed, ">=1")
+
+
+def test_unknown_operators_are_errors_not_silent_matches():
+    # "!=" is not in the grammar: it must fail loudly, never be read as "=".
+    with pytest.raises(v.VersionError):
+        v.satisfies("1.5.0", ">=1.0 <2 !=1.6")
+    assert v.satisfies("1.5.0", ">=1.0 <2 <=1.5.0") and not v.satisfies("1.5.1", ">=1.0 <2 <=1.5.0")

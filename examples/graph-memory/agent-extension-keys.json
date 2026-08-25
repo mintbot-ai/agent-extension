@@ -1,0 +1,12 @@
+{
+  "publisher": "ext.example.com",
+  "keys": [
+    {
+      "public_key": "ed25519:QGAu840A3hi6FXcNtOL9UT/aPkmIg2XUKXW/l/mY++0=",
+      "key_id": "graph-memory-2026",
+      "extensions": [
+        "graph-memory"
+      ]
+    }
+  ]
+}

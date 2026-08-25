@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: tests (py${{ matrix.python }}, ${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+        backend: [cryptography, openssl-only]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install (with the cryptography wheel)
+        if: matrix.backend == 'cryptography'
+        run: pip install -e .[dev]
+      - name: Install (openssl CLI backend only)
+        if: matrix.backend == 'openssl-only'
+        # No cryptography wheel: signing must work through the openssl binary
+        # alone, which is what a host without a Python crypto stack has.
+        run: |
+          pip install -e . pytest jsonschema
+          python -c "import importlib.util as u; assert u.find_spec('cryptography') is None"
+          openssl version
+      - name: Unit + conformance tests
+        run: pytest -q tests/ conformance/
+      - name: Worked example round-trips through the CLI
+        run: |
+          axp validate examples/graph-memory/agent-extension.json > /dev/null
+          axp verify examples/graph-memory/agent-extension.json --keydir examples/graph-memory/agent-extension-keys.json
+          axp target examples/graph-memory/agent-extension.json --runtime hermes --runtime posix --platform linux/amd64 --runtime-version hermes=0.20.0 > /dev/null
+
+  schema:
+    name: schema validates the example
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install jsonschema
+      - run: |
+          python - <<'PY'
+          import json, jsonschema
+          for schema, doc in (("schema/agent-extension.schema.json", "examples/graph-memory/agent-extension.json"),
+                              ("schema/agent-extension-keys.schema.json", "examples/graph-memory/agent-extension-keys.json")):
+              s = json.load(open(schema)); jsonschema.Draft202012Validator.check_schema(s)
+              jsonschema.validate(json.load(open(doc)), s); print("ok", doc)
+          PY

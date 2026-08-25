@@ -35,10 +35,14 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 
 ## Layout
 
-- [`SPEC.md`](SPEC.md) — the specification (draft v0.3).
+- [`SPEC.md`](SPEC.md) — the specification (draft v0.4).
 - [`schema/agent-extension.schema.json`](schema/agent-extension.schema.json) —
-  JSON Schema for validating manifests.
-- [`docs/SIGNING.md`](docs/SIGNING.md) — sign, pin, rotate.
+  JSON Schema for manifests;
+  [`schema/agent-extension-keys.schema.json`](schema/agent-extension-keys.schema.json)
+  for the publisher key directory (§8.5).
+- [`docs/HOST-GUIDE.md`](docs/HOST-GUIDE.md) — implementing a host, profile
+  by profile, with the package calls that do the work.
+- [`docs/SIGNING.md`](docs/SIGNING.md) — sign, pin, rotate, recover.
 - [`docs/runtimes/`](docs/runtimes/) — runtime profiles (`posix`, `hermes`,
   `openclaw`, `claude-code`). Adding a runtime = adding a profile document.
 - [`examples/graph-memory/`](examples/graph-memory/) — a complete worked
@@ -66,15 +70,20 @@ axp release agent-extension.json --bump patch \
     --artifact dist/my-ext.tar.gz --key signing.key
 # (release = set version, follow version-in-URL, fill real sha256s,
 #  stamp published_at/valid_until, sign, validate — in one step)
+axp keydir --publisher ext.example.com --key ed25519:…@my-ext \
+    -o agent-extension-keys.json        # serve at /.well-known/agent-extension-keys.json
 
 # host side
 axp validate agent-extension.json
-axp verify agent-extension.json --pinned ed25519:…
-axp target agent-extension.json --runtime hermes --runtime posix
+axp verify agent-extension.json --pinned ed25519:…          # against the pinned key
+axp verify agent-extension.json --keydir agent-extension-keys.json   # listed by the publisher?
+axp target agent-extension.json --runtime hermes --runtime posix --runtime-version hermes=0.20.0
 ```
 
-Host authors: reuse `axp.signing.PinStore` (the §8 trust state machine) and
-`axp.manifest.validate` / `select_target` instead of reimplementing them.
+Host authors: read [docs/HOST-GUIDE.md](docs/HOST-GUIDE.md) and reuse
+`PinStore.decide()/commit()` (the §8 trust decision), `validate` /
+`select_target`, and the `axp.updates` / `axp.versions` rules instead of
+reimplementing them — the conformance suite then covers your host too.
 
 ## Conformance
 
@@ -85,8 +94,11 @@ adapter — see [conformance/README.md](conformance/README.md).
 
 ## Status
 
-**Draft v0.3** — the universality revision. Field names may still change
-before v1.0; open questions are at the end of `SPEC.md`.
+**Draft v0.4** — v0.3 made the core runtime-neutral, v0.4 hardened trust
+(publisher key directory, transactional pinning) and update semantics. Field
+names may still change before v1.0; open questions are at the end of
+`SPEC.md`. CI runs the suite on Python 3.10 and 3.13, with and without the
+`cryptography` wheel.
 
 ## Contributing
 

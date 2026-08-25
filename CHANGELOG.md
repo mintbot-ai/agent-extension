@@ -2,6 +2,17 @@
 
 ## unreleased
 
+- `schema/agent-extension-keys.schema.json` for the publisher key directory
+  (SPEC 8.5); the manifest schema identifies as 0.4.
+- `axp verify --keydir FILE` checks that the signing key is one the
+  publisher lists for the extension; `examples/graph-memory/` ships a key
+  directory so the check runs out of the box.
+- `docs/HOST-GUIDE.md`: implementing a host profile by profile with the
+  package calls that do the work, plus a pre-flight checklist.
+- CI (GitHub Actions): tests + conformance on Python 3.10/3.13 with the
+  `cryptography` wheel and openssl-only; the worked example round-trips
+  through the CLI; both schemas validate their example documents.
+- Package ships `py.typed`.
 - SPEC v0.4 (draft, additive): publisher key directory
   `/.well-known/agent-extension-keys.json` as the second trust channel for
   key rotation and lost-key recovery (8.5); the tracked channel is host

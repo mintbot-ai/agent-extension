@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-extension.org/schema/agent-extension-0.3.json",
+  "$id": "https://agent-extension.org/schema/agent-extension-0.4.json",
   "title": "Agent Extension Protocol (AXP) manifest",
-  "description": "Draft v0.3. Runtime-neutral description of a packaged agent capability, plus per-runtime install recipes, updates, channels and ed25519 signing. Forward-compatibility rule (SPEC §2.4): unknown fields and unknown provides/component_map types are permitted and MUST be ignored by hosts; security-relevant enums are closed.",
+  "description": "Draft v0.4 (a valid v0.3 manifest is a valid v0.4 manifest). Runtime-neutral description of a packaged agent capability, plus per-runtime install recipes, updates, channels and ed25519 signing. Forward-compatibility rule (SPEC §2.4): unknown fields and unknown provides/component_map types are permitted and MUST be ignored by hosts; security-relevant enums are closed.",
   "type": "object",
   "required": ["spec_version", "kind", "identity", "provides", "targets"],
   "additionalProperties": true,

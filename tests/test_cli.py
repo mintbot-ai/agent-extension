@@ -140,3 +140,37 @@ def test_version_flag(capsys):
         cli.main(["--version"])
     assert exc.value.code == 0
     assert capsys.readouterr().out.strip() == f"axp {__version__}"
+
+
+def test_verify_keydir_cross_check(tmp_path, example, capsys):
+    from axp import signing
+    pem = signing.generate_private_key_pem()
+    pub = signing.public_key_from_private(pem)
+    example["signing"] = {"public_key": pub, "key_id": "k", "next_key": None}
+    example.pop("signature", None)
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(signing.sign_manifest(example, pem)))
+    keydir = tmp_path / "keys.json"
+
+    keydir.write_text(json.dumps({"publisher": "ext.example.com",
+                                  "keys": [{"public_key": pub, "extensions": ["graph-memory"]}]}))
+    assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 0
+    assert "listed in the publisher key directory" in capsys.readouterr().out
+
+    # Listed for a different extension only -> not listed for this one.
+    keydir.write_text(json.dumps({"publisher": "ext.example.com",
+                                  "keys": [{"public_key": pub, "extensions": ["other"]}]}))
+    assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 1
+    assert "not listed" in capsys.readouterr().err
+
+    # Directory for another publisher is an error, not a silent mismatch.
+    keydir.write_text(json.dumps({"publisher": "evil.example", "keys": [{"public_key": pub}]}))
+    assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 1
+    assert "belongs to" in capsys.readouterr().err
+
+    # A bad signature is reported before the directory is even consulted.
+    tampered = json.loads(manifest_path.read_text())
+    tampered["identity"]["version"] = "9.9.9"
+    manifest_path.write_text(json.dumps(tampered))
+    assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 1
+    assert "INVALID" in capsys.readouterr().out

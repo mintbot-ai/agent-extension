@@ -12,6 +12,7 @@ Host side::
 
     axp verify agent-extension.json                     # against its own key (TOFU first use)
     axp verify agent-extension.json --pinned ed25519:…  # against the pinned key
+    axp verify agent-extension.json --keydir agent-extension-keys.json  # key listed by the publisher?
     axp target agent-extension.json --runtime hermes --runtime posix
     axp canonicalize agent-extension.json > canonical.bin
 
@@ -149,8 +150,31 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     except signing.SigningError as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
-    print("signature OK" if ok else "signature INVALID")
-    return 0 if ok else 1
+    if not ok:
+        print("signature INVALID")
+        return 1
+    if args.keydir:
+        # SPEC 8.5: the manifest's key must be one the publisher lists for
+        # this extension. Checked after the signature so the message names
+        # the more specific problem.
+        identity = data.get("identity") or {}
+        try:
+            listed = signing.parse_key_directory(
+                _load(args.keydir), publisher=str(identity.get("publisher") or ""),
+                name=str(identity.get("name") or "") or None,
+            )
+        except signing.SigningError as exc:
+            print(f"axp: {exc}", file=sys.stderr)
+            return 1
+        key = (data.get("signing") or {}).get("public_key")
+        if key not in listed:
+            print(f"signature OK, but {key} is not listed in the publisher key directory for this extension",
+                  file=sys.stderr)
+            return 1
+        print("signature OK; key listed in the publisher key directory")
+        return 0
+    print("signature OK")
+    return 0
 
 
 def _cmd_target(args: argparse.Namespace) -> int:
@@ -261,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify", help="verify a manifest signature")
     p.add_argument("manifest")
     p.add_argument("--pinned", help="verify against this pinned key instead of the manifest's own")
+    p.add_argument("--keydir", help="a publisher key directory file (SPEC 8.5); the signing key must be listed for this extension")
     p.set_defaults(func=_cmd_verify)
 
     p = sub.add_parser("target", help="pick the target a host would install")

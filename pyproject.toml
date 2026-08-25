@@ -23,5 +23,8 @@ axp = "axp.cli:main"
 [tool.setuptools]
 packages = ["axp"]
 
+[tool.setuptools.package-data]
+axp = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "conformance"]

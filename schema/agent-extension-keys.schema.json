@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-extension.org/schema/agent-extension-keys-0.4.json",
+  "title": "AXP publisher key directory",
+  "description": "Served at https://<publisher>/.well-known/agent-extension-keys.json (SPEC section 8.5): the keys a publisher currently signs with. Hosts consult it when a manifest's signing key differs from the pinned one (rotation must move to a listed key; a listed new key with the pinned key delisted is a lost-key recovery that needs the user's explicit consent) and may consult it on first use (strict mode). Unknown fields are ignored.",
+  "type": "object",
+  "required": [
+    "keys"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "publisher": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "description": "The publisher DNS name; when present it MUST equal the domain the document is served from."
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "public_key"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "pattern": "^ed25519:[A-Za-z0-9+/]{43}=$"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "extensions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+            },
+            "description": "Restrict this key to these extension names; absent = every extension of the publisher."
+          },
+          "revoked": {
+            "type": "boolean",
+            "description": "A revoked key is listed so hosts can tell 'replaced' from 'never ours'; it never vouches for anything."
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,10 @@
 
 ## unreleased
 
+- SPEC 9: an origin that can never be the publisher's own (a code forge, a
+  CDN) proves nothing about identity — hosts SHOULD require a signed
+  manifest for such locators and name the foreign origin in the consent
+  prompt; HOST-GUIDE covers the repository-locator resolution order.
 - `schema/agent-extension-keys.schema.json` for the publisher key directory
   (SPEC 8.5); the manifest schema identifies as 0.4.
 - `axp verify --keydir FILE` checks that the signing key is one the

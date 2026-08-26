@@ -620,6 +620,13 @@ of the *installed record*, never from a URL inside the candidate manifest.
 The signature proves *who published*; the origin proves *where it came from*.
 A host SHOULD warn when the manifest origin's registrable domain differs from
 `identity.publisher`, and MUST refuse an `archive` whose `url` is `http://`.
+Where the origin can never be the publisher's own — a code forge such as
+GitHub (§3.1 step 3), a CDN — the origin proves nothing about identity, so a
+host SHOULD require a signed manifest there and refuse an unsigned one: only
+the signature (and, on first use, the key directory of §8.5) ties the document
+to `identity.publisher`. The consent prompt SHOULD name the foreign origin so
+the user can confirm that the repository or site really belongs to the
+publisher.
 Hosts SHOULD apply SSRF protections (no private/link-local addresses) to every
 fetch they make on a user's behalf. Same-origin rules for artifacts are host
 policy (the digest, not the origin, is what is trusted).

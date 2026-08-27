@@ -174,6 +174,45 @@ exactly this; see `docs/runtimes/posix.md`):
   install record and on the consent card. Never report `enforced` unless
   runtime code is contained too.
 
+## Unmanaged installs — the on-ramp for everything else
+
+Most software will never carry a manifest. A host that refuses it outright
+sends users straight back to `curl | bash`: no record, no removal, no update
+check, no warning at all. A host MAY therefore install a repository that has
+**no** `agent-extension.json` as an *unmanaged install* — but only as a
+visibly separate class of thing, never as a cheaper way in:
+
+- **Route only the no-manifest case here.** A manifest that exists but fails
+  the trust rules (unsigned from a repository, broken signature, wrong
+  origin) stays refused. The unmanaged path must never be reachable by simply
+  not signing.
+- **Lead the consent card with what is missing**, not with what the
+  repository claims: no publisher identity or signature, no declared
+  permissions (the code runs with the agent's full privileges), unsigned
+  updates, no lifecycle hooks. Name what you detected (a plugin, skills, an
+  `install.sh` that will run without a sandbox) and the exact commit you pin.
+- **Pin a commit; never apply unattended.** `notify` and `off` are the only
+  policies — there is nothing that could justify applying what the branch
+  serves next without the user. "Update now" is the user's explicit act.
+- **Keep the record apart.** `kind: "unmanaged"`, its own badge in every
+  list, no entry in the pin store, no dependency edges to or from real
+  extensions, and a name collision with an extension is refused in both
+  directions (promotion is explicit: remove the unmanaged copy, then install
+  the extension with its own consent and trust decision).
+- **Report `promotable`** once a month while the repository publishes a
+  manifest at its current commit — that is the whole point: the warning is
+  the publisher's incentive to adopt the protocol, and the user's one-click
+  path to real guarantees.
+- **Hand scripts the §6.2 environment anyway** (`AXP_HOOK`, `AXP_EXT_ID`,
+  `AXP_STATE_DIR`, …) plus `AXP_UNMANAGED=1`, so an `install.sh` written
+  without the contract can adopt it one variable at a time.
+
+The mintbot host implements this in `unmanaged_install.py`: `git ls-remote`
+resolves the ref to a commit, the archive of exactly that commit goes
+through the same size-capped, SSRF-pinned fetch and hardened extraction as
+any artifact, and the tree is classified as a Hermes plugin (`plugin.yaml`),
+skills (`SKILL.md` at the root or one level down) or a script (`install.sh`).
+
 ## Checklist before claiming a profile
 
 - [ ] `pytest conformance/` passes with `AXP_CONFORMANCE_ADAPTER=<your module>`.

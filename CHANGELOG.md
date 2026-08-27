@@ -2,6 +2,12 @@
 
 ## unreleased
 
+- SPEC 9.1 + HOST-GUIDE "Unmanaged installs": how a host may take a
+  repository with no manifest at all (pinned commit, notify-only updates,
+  a consent card that leads with what is missing, `promotable` once a
+  manifest appears) without ever weakening the §8/§9 rules for manifests
+  that exist.
+
 - `sign_manifest(…, prev_private_key_pem=…)` / `axp sign --prev-key` /
   `axp release --prev-key`: the dual-signed rotation release (SPEC 8.3) can
   now be produced by the tooling instead of by hand; a re-sign always drops

@@ -659,6 +659,18 @@ Hosts SHOULD apply SSRF protections (no private/link-local addresses) to every
 fetch they make on a user's behalf. Same-origin rules for artifacts are host
 policy (the digest, not the origin, is what is trusted).
 
+### 9.1 Unmanaged installs (host option)
+
+A repository with **no** manifest at all is outside this protocol. A host MAY
+still install it — as an *unmanaged install* — provided it (a) never routes a
+manifest that failed §8 or §9 there, (b) shows the user, before anything is
+placed or run, that no publisher identity, declared permissions, signed
+updates or lifecycle hooks exist, (c) pins a commit and never applies a
+change unattended, (d) keeps the record visibly distinct from extensions and
+outside the trust store, and (e) tells the user when the repository starts
+publishing a manifest, so the unmanaged copy can be replaced by the real
+extension. The host guide describes the reference behaviour.
+
 ## 10. Standalone install (mandatory fallback)
 
 Every shell-based target MUST ship lifecycle scripts that run **with zero AXP

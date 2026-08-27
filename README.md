@@ -120,11 +120,18 @@ running in production on the mintbot host:
   missing or `root: true` turns the filesystem half off) and every downgrade
   reason are recorded in the install record and shown on the consent card.
 
-This contains the *scripts*, not the extension's runtime code — a plugin
-loaded into the agent process runs with that process's privileges, which is
-why a Hermes host reports `advisory`, never `enforced`. The sandbox lives in
-the host (systemd is a host concern), not in the runtime-neutral `axp`
-package; the guide has everything needed to reproduce it.
+The same derived surface is applied to what the extension **runs**, not only
+to its scripts: `services` become host-owned hardened systemd units (or a
+drop-in on the unit the install script created), stdio `mcp_servers` are
+registered as `systemd-run --pipe` wrappers so every server process the
+runtime spawns is contained, and each extension gets its own egress proxy
+address. Those components are reported `enforced`; a component that refuses
+to start contained runs bare and is reported `declared` with the reason.
+What no host can reach is code loaded *into* the agent process (a Hermes
+plugin's tools, hooks, channels) — that stays `advisory`, and the consent
+card says which is which. The sandbox lives in the host (systemd is a host
+concern), not in the runtime-neutral `axp` package; the guide has everything
+needed to reproduce it.
 
 ## Status
 

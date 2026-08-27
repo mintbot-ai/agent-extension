@@ -278,7 +278,13 @@ not know (they can never *widen* access) and tells the user it did so.
   install/upgrade/uninstall scripts: egress allow-list, read-only tree except
   declared scopes) but not the extension's runtime code.
 - `enforced` — the host runs the extension's runtime code under a real sandbox
-  so an undeclared access *fails*.
+  so an undeclared access *fails*. "Runtime code" is decided per component:
+  the processes the host launches itself (`services` bound with `command` or
+  a `unit`, stdio `mcp_servers`) can be contained on any host with a process
+  sandbox; code loaded *into* the agent process (`tools`, `hooks`, `channels`,
+  `model_providers`, `memory`) only if the runtime can isolate it. The install
+  record carries the tier per component; the extension-level tier is the
+  weakest tier among its runtime components.
 
 A host MUST NOT advertise a higher tier than it implements, MUST report the
 tier it actually applied in the install record, and SHOULD record *why* it
@@ -363,14 +369,27 @@ Common rich-object fields (all optional; component-specific):
 
 - `mcp_servers`: `command` (argv, relative to the install prefix), `env`,
   `url`, `register` (`auto` = host registers it in the runtime's MCP config).
-- `services`: `unit` (`systemd:<name>`, `launchd:<label>`, `supervisor:<name>`),
-  `actions` (`daemon-reload`/`enable`/`start`/`stop`), `restart`, `health`.
+  Without `command` a host falls back to the component's `command_ref`
+  (§4.2), resolved inside the retained artifact.
+- `services`: **either** `command` (argv, relative to the install prefix —
+  the host owns the process: it writes and manages the unit itself, and the
+  install script MUST NOT start the daemon) **or** `unit`
+  (`systemd:<name>`, `launchd:<label>`, `supervisor:<name>` — a unit the
+  install script created; the host may re-affirm `actions`
+  `daemon-reload`/`enable`/`start`/`stop` and, on a Sandboxed host, attach
+  containment to it). Plus `env` (extra environment), `restart`
+  (`always`/`on-failure`/`no`; default `on-failure`), `health`.
 - `tools`: `module`, `register`, `unregister`.
 - `skills`: `dir`, `link` (`copy`/`symlink`).
 - `cron`: `unit`, `schedule`.
 
 String sugar: `"skills/"` ≡ `{ "dir": "skills/" }`; `"systemd:x.service"` ≡
 `{ "unit": "systemd:x.service" }`. Unknown fields are ignored (§2.4).
+
+When `provides` lists **several** components of one kind, the binding is an
+object keyed by component name instead (`"services": { "store": { "command":
+["bin/store"] }, "indexer": "systemd:indexer.service" }`); with a single
+component the unkeyed form binds to it directly.
 
 ## 6. Host ↔ script contract
 
@@ -703,7 +722,7 @@ ones before it.
 | **Core**      | read v0.x manifests per §2.4; select a target (§5, incl. `posix` fallback); support `archive`; verify sha256; run lifecycle hooks with the §6 contract; retain the artifact (§6.1); show `permissions` for consent before any script runs; record the install (id, version, digest, enforcement actually applied). |
 | **Trusted**   | verify signatures (§8), pin on first use under the extension id, enforce the same-key rule, rotation, the unsigned ratchet, and `valid_until` warnings; SHOULD consult the publisher key directory on rotation (§8.5) and defer when it is unreachable. |
 | **Managed**   | resolve all three `updates.source` kinds; track the channel as host state (§7.2); per-extension policy; monotonic apply with `upgrade` + `AXP_FROM_VERSION`; the consent ratchet (§7.6); run `health` after install/upgrade and on a schedule; evaluate `runtime_version` and `requires.extensions` with the §4.3 grammar and refuse when a hard dependency is missing, naming it. |
-| **Sandboxed** | apply at least the `advisory` tier to lifecycle hooks derived from `permissions` (egress allow-list incl. resolvers and the publisher's hosts; read-only tree except declared scopes, install prefix, state/cache); report downgrades honestly; `enforced` for runtime code where the runtime allows it. |
+| **Sandboxed** | apply at least the `advisory` tier to lifecycle hooks derived from `permissions` (egress allow-list incl. resolvers and the publisher's hosts; read-only tree except declared scopes, install prefix, state/cache); report downgrades honestly; contain the runtime components the host launches itself (`services`, stdio `mcp_servers`) with the same derived surface and report them `enforced`; in-process components stay `advisory` unless the runtime can isolate them. |
 
 A conformance test-suite lives in `conformance/` (see repo README); a host
 claiming a profile SHOULD pass it.

@@ -2,6 +2,18 @@
 
 ## unreleased
 
+- Runtime containment (SPEC 4.4 / 5.3 / 11, HOST-GUIDE "Runtime
+  containment", hermes + posix profiles, README): the Sandboxed profile now
+  covers the components a host launches itself — `services` bound with
+  `command` (host-owned unit) or `unit` (drop-in), and stdio `mcp_servers`
+  registered as `systemd-run --pipe` wrappers — reported `enforced` per
+  component, with a per-extension egress proxy address and honest fallback
+  to `declared` when a component refuses to start contained. In-process
+  plugin code still caps at `advisory`. `component_map.services` gains
+  `command`/`env`/`restart`; several components of one kind bind via an
+  object keyed by component name. Implemented by the mintbot host and
+  verified end to end on real systemd.
+
 - The worked example is now `examples/sample-memory/`
   (`ext.example.com/sample-memory`, spec_version 0.4, fresh dates,
   re-signed with the public example key). The old name made a spec fixture

@@ -57,5 +57,8 @@ which refuses names that resolve to internal ranges (`IPAddressDeny=any` +
 listeners; `HTTPS_PROXY`/`HTTP_PROXY` point at the proxy). Filesystem:
 `ProtectSystem=strict` + `ReadWritePaths` for `AXP_PREFIX`, `AXP_STATE_DIR`,
 `AXP_CACHE_DIR`, `AXP_ARTIFACT_DIR` and declared `:rw` scopes, `PrivateTmp`.
-`root: true` disables the filesystem half; it is recorded. `enforced` is out
-of scope for `posix`.
+`root: true` disables the filesystem half; it is recorded. A host that
+launches `services` (`command`) and stdio `mcp_servers` itself MAY contain
+them with the same derived surface and report those components `enforced`
+(HOST-GUIDE, "Runtime containment"); `posix` itself requires nothing beyond
+`declared`.

@@ -174,6 +174,39 @@ exactly this; see `docs/runtimes/posix.md`):
   install record and on the consent card. Never report `enforced` unless
   runtime code is contained too.
 
+**Runtime containment** — the same derived surface applied to what the
+extension *runs*, not only to its scripts. The mintbot host does this for the
+components it launches itself:
+
+- `services` bound with `command` become a **host-owned** unit
+  (`mintbot-ext-<publisher>-<name>-svc-<service>.service`, `ExecStart` = argv
+  under the prefix, `Restart` from the map, `AXP_*` + `HOME=$AXP_STATE_DIR`
+  in the environment). `services` bound with `unit: systemd:<x>` get a
+  drop-in (`<x>.service.d/50-axp-sandbox.conf`) with the same properties on
+  the unit the install script created. Properties: `ProtectSystem=strict`,
+  `ProtectHome=read-only` (strict alone leaves `/root` writable),
+  `PrivateTmp`, `NoNewPrivileges`, `ReadWritePaths=-<prefix|state|cache|scopes>`
+  (the leading `-` so a scope that does not exist yet cannot fail the unit),
+  `IPAddressDeny=any` + `IPAddressAllow` for the proxy address, declared IP
+  literals and the extension's own loopback listeners (`network_ingress`),
+  `PrivateDevices`, `ProtectKernel*`, `RestrictAddressFamilies`, an empty
+  capability set (`CAP_NET_BIND_SERVICE` only for a listener below 1024).
+- stdio `mcp_servers` are registered in the runtime's MCP config as a
+  `systemd-run --wait --pipe --collect --property=… -- <argv>` wrapper, so
+  every server process the runtime spawns is contained; `http`/`sse` servers
+  are URL entries and get no tier (the host runs no process).
+- Each extension with named egress gets its **own** proxy unit
+  (`DynamicUser`, deterministic `127.7.7.<n>` per extension id) so that
+  `IPAddressAllow` of one extension never opens another's proxy.
+- A component that refuses to start under containment is restarted bare,
+  reported `declared` with the reason, and the extension's tier drops with
+  it — never silently. Uninstall tears units, drop-ins, the proxy and the
+  MCP entries down; an upgrade tears down what the new version no longer
+  provides.
+- What this cannot reach: code loaded into the agent process (`tools`,
+  `hooks`, `channels`, …). Those stay `advisory`, and the consent card says
+  so.
+
 ## Unmanaged installs — the on-ramp for everything else
 
 Most software will never carry a manifest. A host that refuses it outright

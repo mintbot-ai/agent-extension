@@ -46,10 +46,18 @@ SPEC §6.2 plus `AXP_HERMES_HOME` (= `HERMES_HOME`) and `AXP_HERMES_VERSION`.
 - `tools` — a Hermes plugin package (`module`) placed under `hermes:plugins`;
   Hermes discovers it on restart. `register`/`unregister` are the package's
   entrypoints the host may call.
-- `mcp_servers` — `register: "auto"` adds the server to Hermes's MCP config.
+- `mcp_servers` — `register: "auto"` adds the server to Hermes's MCP config
+  (`mcp_servers.<name>` in `config.yaml`; a name already taken by another
+  extension is registered as `<ext-name>-<server>`). On a Sandboxed host a
+  stdio server is registered as a `systemd-run --pipe` wrapper around the
+  `command` (or the component's `command_ref` inside the retained artifact),
+  so Hermes spawns it contained.
 - `prompts` — fragment appended to the persona overlay (host-specific).
 - `cron` — a Hermes cron job (host-side) or a `systemd:` timer (script-side).
-- `services` — `systemd:` unit actions after install / before uninstall.
+- `services` — `command` → a host-owned `mintbot-ext-<publisher>-<name>-svc-
+  <service>.service` the host writes, enables and removes; `unit: systemd:<x>`
+  → the unit the install script created, re-affirmed after install / stopped
+  before uninstall and, on a Sandboxed host, given a containment drop-in.
 
 ## Enforcement
 
@@ -57,8 +65,15 @@ SPEC §6.2 plus `AXP_HERMES_HOME` (= `HERMES_HOME`) and `AXP_HERMES_VERSION`.
   `permissions`; see posix profile). Egress is enforced **by name** through a
   host-run allow-list proxy, so wildcards are enforced too. `root: true` →
   filesystem half off, no systemd → `declared`; all recorded.
-- Runtime code of a Hermes plugin executes inside the Hermes process and is
-  **not** contained; a Hermes host never reports `enforced`.
+- `enforced` for the runtime components the host launches itself:
+  `services` (host-owned unit or drop-in) and stdio `mcp_servers`
+  (`systemd-run --pipe` wrapper), each behind a per-extension egress proxy —
+  see HOST-GUIDE, "Runtime containment". The install record lists the tier
+  per component under `containment`; a component that refuses to start
+  contained runs bare and is reported `declared` with the reason.
+- Runtime code of a Hermes *plugin* (`tools`, `hooks`, `channels`,
+  `model_providers`, `memory`) executes inside the Hermes process and is
+  **not** contained; an extension providing only those caps at `advisory`.
 
 ## Consent
 

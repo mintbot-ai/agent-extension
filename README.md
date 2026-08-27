@@ -69,7 +69,9 @@ axp keygen --out signing.key            # prints the ed25519:… public form
 axp release agent-extension.json --bump patch \
     --artifact dist/my-ext.tar.gz --key signing.key
 # (release = set version, follow version-in-URL, fill real sha256s,
-#  stamp published_at/valid_until, sign, validate — in one step)
+#  stamp published_at/valid_until, sign, validate — in one step;
+#  add --prev-key old.key for a key-rotation release)
+axp verify agent-extension.json --artifact dist/my-ext.tar.gz   # the file you are about to upload?
 axp keydir --publisher ext.example.com --key ed25519:…@my-ext \
     -o agent-extension-keys.json        # serve at /.well-known/agent-extension-keys.json
 

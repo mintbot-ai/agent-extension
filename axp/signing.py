@@ -190,12 +190,20 @@ def verify_bytes(data: bytes, signature: str, public_key: str) -> bool:
 # Manifest-level operations
 # ---------------------------------------------------------------------------
 
-def sign_manifest(manifest: dict, private_key_pem: bytes) -> dict:
+def sign_manifest(manifest: dict, private_key_pem: bytes, *,
+                  prev_private_key_pem: bytes | None = None) -> dict:
     """Return a copy of ``manifest`` with ``signature`` set (SPEC §8.2).
 
     ``signing.public_key`` must already be present and must match the private
     key — signing with a mismatched key would publish an unverifiable
     manifest, so it is refused here rather than discovered by users.
+
+    ``prev_private_key_pem`` turns the result into a key-rotation release
+    (SPEC §8.3): ``signature_prev`` by the OLD pinned key over the very same
+    signing input, so hosts still pinning the old key can verify the
+    hand-over to the new one. Any ``signature_prev`` already on the input is
+    dropped either way — a countersignature only ever matched one exact
+    payload and must never be carried over to a re-signed document.
     """
     signing = manifest.get("signing") or {}
     declared = signing.get("public_key")
@@ -207,8 +215,16 @@ def sign_manifest(manifest: dict, private_key_pem: bytes) -> dict:
             f"signing.public_key {declared!r} does not match this private key "
             f"({actual!r}) — wrong key file?"
         )
-    out = {k: v for k, v in manifest.items() if k != "signature"}
-    out["signature"] = sign_bytes(jcs.signing_input(out), private_key_pem)
+    out = {k: v for k, v in manifest.items() if k not in ("signature", "signature_prev")}
+    payload = jcs.signing_input(out)
+    out["signature"] = sign_bytes(payload, private_key_pem)
+    if prev_private_key_pem is not None:
+        if public_key_from_private(prev_private_key_pem) == actual:
+            raise SigningError(
+                "the previous key is the same as the signing key; a rotation release "
+                "needs the OLD key as --prev-key and the NEW key as --key"
+            )
+        out["signature_prev"] = sign_bytes(payload, prev_private_key_pem)
     return out
 
 

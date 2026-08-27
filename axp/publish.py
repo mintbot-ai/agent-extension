@@ -107,7 +107,8 @@ def bump_version(version: str, part: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
-def _sha256_file(path: Path) -> str:
+def sha256_file(path: Path) -> str:
+    """Hex SHA-256 of a file, streamed (artifacts can be large)."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -179,7 +180,7 @@ def prepare_release(
                 )
             used.add(target.get("runtime") if target.get("runtime") in artifacts else None)
             delivery["url"] = refresh_url(str(delivery.get("url") or ""))
-            delivery["sha256"] = _sha256_file(artifact)
+            delivery["sha256"] = sha256_file(artifact)
             target["delivery"] = delivery
         targets.append(target)
     out["targets"] = targets
@@ -196,7 +197,7 @@ def prepare_release(
     release_artifact: dict = dict(release.get("artifact") or {})
     canonical = default or next(iter(artifacts.values()))
     release_artifact["url"] = refresh_url(str(release_artifact.get("url") or targets[0]["delivery"]["url"]))
-    release_artifact["sha256"] = _sha256_file(canonical)
+    release_artifact["sha256"] = sha256_file(canonical)
     release["artifact"] = release_artifact
     release["published_at"] = stamp.isoformat().replace("+00:00", "Z")
     if valid_days:

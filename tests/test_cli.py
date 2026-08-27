@@ -1,5 +1,6 @@
 """axp.cli — end-to-end publisher/host flow through the command line."""
 
+import hashlib
 import json
 
 from axp import cli
@@ -174,3 +175,65 @@ def test_verify_keydir_cross_check(tmp_path, example, capsys):
     manifest_path.write_text(json.dumps(tampered))
     assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 1
     assert "INVALID" in capsys.readouterr().out
+
+
+def test_sign_with_prev_key_produces_a_rotation_hosts_accept(tmp_path, example):
+    """SPEC 8.3 end to end through the CLI: announce under the old key, then
+    a release signed by the new key and countersigned (``--prev-key``) by the
+    old one moves a host's pin. A later plain re-sign drops the stale
+    countersignature; the same key on both sides is refused."""
+    from axp import signing
+    from axp.manifest import ext_id
+    old_key, new_key = tmp_path / "old.key", tmp_path / "new.key"
+    assert cli.main(["keygen", "--out", str(old_key)]) == 0
+    assert cli.main(["keygen", "--out", str(new_key)]) == 0
+    old_pub = signing.public_key_from_private(old_key.read_bytes())
+    new_pub = signing.public_key_from_private(new_key.read_bytes())
+    path = tmp_path / "m.json"
+    store = signing.PinStore(tmp_path / "pins.json")
+    eid = ext_id(example)
+    example.pop("signature", None)
+    example.pop("signature_prev", None)
+
+    example["signing"] = {"public_key": old_pub, "key_id": "old", "next_key": None}
+    path.write_text(json.dumps(example))
+    assert cli.main(["sign", str(path), "--key", str(old_key), "--in-place"]) == 0
+    assert store.evaluate(eid, json.loads(path.read_text())).action == "pin"
+
+    example["signing"]["next_key"] = new_pub
+    path.write_text(json.dumps(example))
+    assert cli.main(["sign", str(path), "--key", str(old_key), "--in-place"]) == 0
+    assert store.evaluate(eid, json.loads(path.read_text())).action == "announce"
+
+    example["signing"] = {"public_key": new_pub, "key_id": "new", "next_key": None}
+    path.write_text(json.dumps(example))
+    assert cli.main(["sign", str(path), "--key", str(new_key), "--prev-key", str(old_key), "--in-place"]) == 0
+    rotated = json.loads(path.read_text())
+    assert rotated["signature_prev"]
+    assert store.evaluate(eid, rotated).action == "rotate"
+    assert store.pinned_key(eid) == new_pub
+
+    assert cli.main(["sign", str(path), "--key", str(new_key), "--in-place"]) == 0
+    assert "signature_prev" not in json.loads(path.read_text())
+    assert cli.main(["sign", str(path), "--key", str(new_key), "--prev-key", str(new_key),
+                     "-o", str(tmp_path / "same.json")]) == 1
+    assert cli.main(["release", str(path), "--artifact", str(new_key), "--prev-key", str(old_key),
+                     "-o", str(tmp_path / "unsigned.json")]) == 2
+
+
+def test_verify_artifact_digest(tmp_path, example, capsys):
+    from axp import signing
+    pem = signing.generate_private_key_pem()
+    example["signing"] = {"public_key": signing.public_key_from_private(pem), "key_id": "k", "next_key": None}
+    example.pop("signature", None)
+    artifact = tmp_path / "ext.tar.gz"
+    artifact.write_bytes(b"the bytes that were signed")
+    example["release"]["artifact"]["sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(signing.sign_manifest(example, pem)))
+
+    assert cli.main(["verify", str(path), "--artifact", str(artifact)]) == 0
+    assert "artifact digest OK" in capsys.readouterr().out
+    artifact.write_bytes(b"something else")
+    assert cli.main(["verify", str(path), "--artifact", str(artifact)]) == 1
+    assert "matches none" in capsys.readouterr().err

@@ -104,6 +104,19 @@ publisher keys) and refuse TOFU for keys not on it — host policy, not manifest
    announcement, verifies `signature` against the new key, then **re-pins**.
 3. **After** — releases are signed by the new key alone.
 
+```bash
+axp keygen --out new.key                                   # prints ed25519:NEW…
+# 1. announce: set signing.next_key = ed25519:NEW… and release as usual
+axp release agent-extension.json --bump patch --artifact dist/x.tar.gz --key old.key
+# 2. rotate: signing.public_key = ed25519:NEW…, sign with the new key,
+#    countersign with the old one (writes signature_prev)
+axp release agent-extension.json --bump patch --artifact dist/x.tar.gz --key new.key --prev-key old.key
+# 3. afterwards: --key new.key only (a plain re-sign drops signature_prev)
+```
+
+List the new key in the key directory (§9) *before* step 2 — a host that
+consults the directory refuses a rotation to an unlisted key.
+
 A key lost with **no** `next_key` announced cannot self-rotate — recovery is a
 fresh TOFU the user must explicitly confirm. That is the safe outcome.
 

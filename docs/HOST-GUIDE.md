@@ -132,6 +132,18 @@ Rules that are easy to get wrong, all encoded in `axp.updates` /
   `upgrade` hook with `AXP_FROM_VERSION` (fallback: its idempotent `install`)
   → replace the retained artifact, commit the pin, rewrite the record.
   Any failure before the last step leaves the previous version fully intact.
+  Apply the very manifest you checked — one fetch per pass, and no window in
+  which the source can change between the decision and the apply.
+- **A re-install is an upgrade.** When the user installs another version of
+  an extension that is already installed, run the new artifact's `upgrade`
+  hook with `AXP_FROM_VERSION` (downgrades included — that is the explicit
+  interactive action §7.4 reserves for the user) and keep their stored
+  update policy; show that effective policy on the consent card.
+- **Errors are not nags.** Report a failing update source once, then at most
+  monthly or when the message changes (the §7.4 cadence); a read-only
+  "check now" reports everything and records nothing.
+- **Uninstall keeps data** unless the user asks to purge: `AXP_PURGE=1` for
+  the hook, then remove the state / cache / retained-artifact tree.
 - **Health** (§6.4): run `lifecycle.health` from the retained artifact after
   every apply and on your schedule; exit 0/1/2 = ok/unhealthy/unknown, first
   stdout line is the status text.
@@ -154,7 +166,10 @@ exactly this; see `docs/runtimes/posix.md`):
   entries (wildcards included) plus the publisher's own hosts, resolves names
   itself, and refuses names that resolve to internal ranges. Address-based
   allow-lists break on CDNs and cannot express wildcards; a whole-loopback
-  allowance exposes every local service.
+  allowance exposes every local service. `IPAddressAllow` cannot restrict
+  ports either: services bound to a wildcard address (`0.0.0.0` / `::`) stay
+  reachable through the proxy's address, so bind local control services to
+  `127.0.0.1` explicitly.
 - Record the tier you actually applied and every downgrade reason in the
   install record and on the consent card. Never report `enforced` unless
   runtime code is contained too.

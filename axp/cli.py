@@ -7,12 +7,14 @@ Publisher side::
     axp validate agent-extension.json
     axp release agent-extension.json --bump patch --artifact dist/my-ext.tar.gz --key signing.key
     axp sign agent-extension.json --key signing.key --in-place
+    axp sign agent-extension.json --key new.key --prev-key old.key --in-place   # rotation release
 
 Host side::
 
     axp verify agent-extension.json                     # against its own key (TOFU first use)
     axp verify agent-extension.json --pinned ed25519:…  # against the pinned key
     axp verify agent-extension.json --keydir agent-extension-keys.json  # key listed by the publisher?
+    axp verify agent-extension.json --artifact dist/my-ext.tar.gz       # digest matches the manifest?
     axp target agent-extension.json --runtime hermes --runtime posix
     axp canonicalize agent-extension.json > canonical.bin
 
@@ -27,6 +29,15 @@ import sys
 from pathlib import Path
 
 from . import __version__, jcs, manifest, publish, signing
+
+
+def _read_key(path: str | None) -> bytes | None:
+    if not path:
+        return None
+    try:
+        return Path(path).read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"axp: cannot read key {path}: {exc}")
 
 
 def _load(path: str) -> dict:
@@ -78,7 +89,9 @@ def _cmd_sign(args: argparse.Namespace) -> int:
         # Sign first, validate the signed result: the input is legitimately
         # "invalid" until the signature exists, but nothing broken may be
         # published, so validation gates the write.
-        signed = signing.sign_manifest(data, Path(args.key).read_bytes())
+        signed = signing.sign_manifest(
+            data, Path(args.key).read_bytes(), prev_private_key_pem=_read_key(args.prev_key),
+        )
         manifest.validate(signed, origin=args.origin)
     except (manifest.ManifestError, signing.SigningError) as exc:
         print(f"axp: {exc}", file=sys.stderr)
@@ -130,7 +143,12 @@ def _cmd_release(args: argparse.Namespace) -> int:
             valid_days=args.valid_days,
         )
         if args.key:
-            released = signing.sign_manifest(released, Path(args.key).read_bytes())
+            released = signing.sign_manifest(
+                released, Path(args.key).read_bytes(), prev_private_key_pem=_read_key(args.prev_key),
+            )
+        elif args.prev_key:
+            print("axp: --prev-key needs --key (the new key signs, the old one countersigns)", file=sys.stderr)
+            return 2
         manifest.validate(released)
     except (publish.PublishError, manifest.ManifestError, signing.SigningError) as exc:
         print(f"axp: {exc}", file=sys.stderr)
@@ -172,8 +190,27 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 1
         print("signature OK; key listed in the publisher key directory")
-        return 0
-    print("signature OK")
+    else:
+        print("signature OK")
+    if args.artifact:
+        # The signature binds the digests; this closes the loop for the file
+        # the publisher is about to upload ("is this the tarball I signed?").
+        try:
+            digest = publish.sha256_file(Path(args.artifact))
+        except OSError as exc:
+            print(f"axp: cannot read artifact {args.artifact}: {exc}", file=sys.stderr)
+            return 1
+        expected = {str(((data.get("release") or {}).get("artifact") or {}).get("sha256") or "").lower()}
+        for target in data.get("targets") or []:
+            delivery = (target.get("delivery") or {}) if isinstance(target, dict) else {}
+            if delivery.get("method") == manifest.DELIVERY_ARCHIVE:
+                expected.add(str(delivery.get("sha256") or "").lower())
+        expected.discard("")
+        if digest not in expected:
+            print(f"artifact {args.artifact} has sha256 {digest}, which matches none of the "
+                  f"manifest's archive digests", file=sys.stderr)
+            return 1
+        print(f"artifact digest OK ({digest[:12]}…)")
     return 0
 
 
@@ -265,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="freshness window for valid_until; 0 drops the field (default: 180 - "
                         "SPEC 7.4: generous, you commit to re-releasing before it lapses)")
     p.add_argument("--key", help="private key PEM from `axp keygen`; omitting leaves the release unsigned")
+    p.add_argument("--prev-key", help="the OLD key for a rotation release (SPEC 8.3): adds signature_prev")
     p.add_argument("-o", "--output", help="write here instead of in place")
     p.set_defaults(func=_cmd_release)
 
@@ -276,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("sign", help="validate + sign a manifest")
     p.add_argument("manifest")
     p.add_argument("--key", required=True, help="private key PEM from `axp keygen`")
+    p.add_argument("--prev-key", help="the OLD key for a rotation release (SPEC 8.3): adds signature_prev")
     p.add_argument("--origin", help="as in validate")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--in-place", action="store_true", help="write the signature back into the manifest file")
@@ -286,6 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("manifest")
     p.add_argument("--pinned", help="verify against this pinned key instead of the manifest's own")
     p.add_argument("--keydir", help="a publisher key directory file (SPEC 8.5); the signing key must be listed for this extension")
+    p.add_argument("--artifact", help="an artifact file whose sha256 must match release.artifact or an archive target")
     p.set_defaults(func=_cmd_verify)
 
     p = sub.add_parser("target", help="pick the target a host would install")

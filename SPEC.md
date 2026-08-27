@@ -114,6 +114,10 @@ Fetches MUST be HTTPS (or local). The manifest's origin SHOULD match
 
 Canonical filename everywhere: **`agent-extension.json`**.
 
+A manifest is a small document: publishers SHOULD keep it under 64 KiB
+(hosts MAY refuse larger ones — the reference host does). Large payloads such
+as schemas or prompt fragments belong in the artifact, referenced by path.
+
 ### 3.2 Top-level shape
 
 ```jsonc
@@ -216,9 +220,13 @@ vendor types use `x-` (e.g. `x-acme-dashboards`).
 
 **Version constraint grammar** (used here, in `runtime_version`, and in
 `platforms`): a space-separated list of comparators, all of which must hold:
-`>=X`, `>X`, `<=X`, `<X`, `=X`, `^X` (same major), `~X` (same major.minor).
-Versions are compared segment-wise numerically, so both semver (`1.4.0`) and
-calver (`2026.6`) work. Pre-release tags compare lower than the release.
+`>=X`, `>X`, `<=X`, `<X`, `=X`, `^X`, `~X`. `^X` keeps the first non-zero
+segment fixed (npm semantics: `^1.2` = `>=1.2 <2`, `^0.2.3` = `>=0.2.3 <0.3`);
+`~X` keeps everything but the second segment fixed (`~1.2.3` = `>=1.2.3 <1.3`,
+`~1` = `>=1 <2`). Versions are compared segment-wise numerically, so both
+semver (`1.4.0`) and calver (`2026.6`) work; a missing trailing segment counts
+as zero. Pre-release tags compare lower than the release. The reference
+implementation (`axp.versions`) is normative for this grammar.
 
 Runtime-version constraints are per target (§5), not here. Dependency
 *resolution* (who installs `requires.extensions`) is host behaviour defined in
@@ -338,6 +346,12 @@ signature over the manifest that contains the digest (§8). Registry-delegated
 methods (`clawhub`) carry their own trust root; the host reports which root it
 relied on.
 
+A host MAY cap the artifact it downloads and what it unpacks to (the reference
+host stops at 64 MiB / 512 MiB) and MUST refuse archives whose members escape
+the extraction root. Publishers SHOULD keep the artifact small — lifecycle
+scripts, schemas, small payloads — and let `install` fetch heavy dependencies
+(§10: those fetches are declared egress).
+
 ### 5.3 `component_map` — string or rich object
 
 Each binding is **either** a plain string (`"skills/"` — "it's here, the
@@ -448,6 +462,13 @@ Targets whose `delivery` is `archive` MAY reference the same URL+digest or a
 per-runtime artifact; either way every digest in the manifest is inside the
 signed unit.
 
+**A published version is immutable.** Once a manifest for `identity.version`
+X has been served (or attached to a release), the bytes — and therefore the
+digests — of X MUST NOT change. Hosts key retained artifacts, "already
+installed" checks and the strictly-higher update rule on the version and
+would never notice a silent re-cut. Fix a mistake by publishing a higher
+version; only a version that was never served may be re-cut.
+
 ### 7.1 `updates` — where a newer version is found
 
 ```jsonc
@@ -506,7 +527,10 @@ host's decision; default daily plus an on-demand check.
   the warning when the manifest first expires and then no more than about
   once a month while it stays expired — a nightly nag trains users to ignore
   the one warning that matters. A *candidate* manifest that is already
-  expired is refused (it is not a valid release any more).
+  expired is refused (it is not a valid release any more); the grace window
+  softens only the warning about the *installed* manifest, never a
+  candidate. The same once-then-monthly cadence SHOULD apply to a
+  persistently failing update source.
 
 ### 7.5 Per-extension policy
 
@@ -563,6 +587,10 @@ host policy layered on top, not part of the manifest.
    key, `signature_prev` by the old pinned key, `signing.public_key` = new key
    (must equal the announced `next_key`). The host verifies both, then re-pins.
 3. Later releases are signed by the new key alone.
+
+Tooling: `axp sign --key NEW --prev-key OLD` (or `axp release … --key NEW
+--prev-key OLD`) writes the dual-signed release; `signature_prev` is never
+carried over to a later re-signed document.
 
 A key lost without an announced successor cannot self-rotate; recovery is an
 explicit user re-trust (fresh TOFU). That is the safe outcome.

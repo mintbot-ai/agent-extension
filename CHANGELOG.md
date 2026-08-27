@@ -2,6 +2,21 @@
 
 ## unreleased
 
+- `sign_manifest(…, prev_private_key_pem=…)` / `axp sign --prev-key` /
+  `axp release --prev-key`: the dual-signed rotation release (SPEC 8.3) can
+  now be produced by the tooling instead of by hand; a re-sign always drops
+  a stale `signature_prev`; the same key on both sides is refused.
+- `axp verify --artifact FILE` checks that a file's sha256 is one the
+  manifest signs (release.artifact or an archive target) before upload.
+- SPEC: a published version is immutable (7.0); manifests SHOULD stay under
+  64 KiB and hosts MAY cap artifact download / unpack sizes (3.1, 5.2); the
+  `^`/`~` constraint semantics are spelled out and `axp.versions` is
+  normative (4.3); no grace window for expired candidates and the
+  once-then-monthly cadence also for failing sources (7.4); rotation
+  tooling named (8.3). HOST-GUIDE: apply what you checked, re-install is an
+  upgrade, errors are not nags, purge semantics, the wildcard-listener caveat
+  of `IPAddressAllow`.
+
 - SPEC 9: an origin that can never be the publisher's own (a code forge, a
   CDN) proves nothing about identity — hosts SHOULD require a signed
   manifest for such locators and name the foreign origin in the consent

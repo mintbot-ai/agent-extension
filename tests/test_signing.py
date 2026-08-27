@@ -158,3 +158,20 @@ def test_parse_key_directory():
     with pytest.raises(signing.SigningError):
         signing.parse_key_directory(["not", "a", "directory"], publisher="pub.example", name="mine")
     assert signing.key_directory_url("pub.example") == "https://pub.example/.well-known/agent-extension-keys.json"
+
+
+def test_sign_manifest_with_prev_key_countersigns_the_same_payload(example, keypair, keypair2):
+    old_pem, old_pub = keypair
+    new_pem, new_pub = keypair2
+    example = dict(example)
+    example["signing"] = {"public_key": new_pub, "key_id": "new", "next_key": None}
+    example["signature_prev"] = "stale"
+    rotated = signing.sign_manifest(example, new_pem, prev_private_key_pem=old_pem)
+    from axp import jcs
+    payload = jcs.signing_input(rotated)
+    assert signing.verify_bytes(payload, rotated["signature"], new_pub)
+    assert signing.verify_bytes(payload, rotated["signature_prev"], old_pub)
+    # Without the previous key the stale countersignature is dropped, never kept.
+    assert "signature_prev" not in signing.sign_manifest(example, new_pem)
+    with pytest.raises(signing.SigningError, match="same as the signing key"):
+        signing.sign_manifest(example, new_pem, prev_private_key_pem=new_pem)

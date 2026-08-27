@@ -17,6 +17,11 @@ from axp.manifest import ext_id
 
 
 requires_openssl = pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl CLI not installed")
+# CI's openssl-only matrix leg deliberately has no cryptography wheel; a test
+# that needs BOTH backends is not applicable there rather than failing.
+requires_both_backends = pytest.mark.skipif(
+    not signing.HAVE_CRYPTOGRAPHY, reason="needs the cryptography backend as well as openssl",
+)
 
 
 @pytest.fixture
@@ -44,11 +49,11 @@ def test_openssl_backend_roundtrip(openssl_only, example):
 
 
 @requires_openssl
+@requires_both_backends
 def test_backends_are_interoperable(monkeypatch, example):
     """Keys and signatures made by one backend verify with the other — the
     manifest a publisher signs with cryptography must verify on an openssl-only
     host and vice versa."""
-    assert signing.HAVE_CRYPTOGRAPHY, "this test needs both backends present"
     pem_c = signing.generate_private_key_pem()
     pub_c = signing.public_key_from_private(pem_c)
     signed_c = _signed(example, pem_c, pub_c)

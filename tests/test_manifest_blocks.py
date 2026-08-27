@@ -21,7 +21,7 @@ def test_public_helpers(example):
     assert manifest.is_axp_manifest(example) is True
     assert manifest.is_axp_manifest({"kind": "agent-extension"}) is True
     assert manifest.is_axp_manifest("agent-extension") is False
-    assert manifest.ext_id(example) == "ext.example.com/graph-memory"
+    assert manifest.ext_id(example) == "ext.example.com/sample-memory"
     assert manifest.ext_id({}) == "/"
     os_name, arch = manifest.host_platform().split("/")
     assert os_name == platform.system().lower() and arch

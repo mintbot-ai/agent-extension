@@ -17,7 +17,7 @@ def adapter():
 
 @pytest.fixture
 def example() -> dict:
-    data = json.loads((REPO / "examples/graph-memory/agent-extension.json").read_text())
+    data = json.loads((REPO / "examples/sample-memory/agent-extension.json").read_text())
     data = copy.deepcopy(data)
     for index, target in enumerate(data["targets"]):
         target["delivery"]["sha256"] = hashlib.sha256(f"artifact-{index}".encode()).hexdigest()

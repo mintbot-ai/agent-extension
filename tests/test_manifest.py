@@ -7,7 +7,7 @@ from axp import manifest
 
 def test_example_validates(example):
     summary = manifest.validate(example)
-    assert summary["ext_id"] == "ext.example.com/graph-memory"
+    assert summary["ext_id"] == "ext.example.com/sample-memory"
     assert summary["publisher_derived"] is False
     assert summary["channel"] == "stable" and summary["signed"] is True
     assert summary["runtimes"] == ["posix", "hermes", "claude-code"]
@@ -47,7 +47,7 @@ def test_forward_compat_ignores_unknown_fields_and_types(example):
     example["future_block"] = 7
     example["provides"]["x-acme-widgets"] = "anything"
     example["targets"][0]["x-note"] = True
-    assert manifest.validate(example)["name"] == "graph-memory"
+    assert manifest.validate(example)["name"] == "sample-memory"
 
 
 def test_v02_aliases(example):

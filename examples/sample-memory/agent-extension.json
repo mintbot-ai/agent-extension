@@ -1,15 +1,15 @@
 {
-  "spec_version": "0.3",
+  "spec_version": "0.4",
   "kind": "agent-extension",
   "identity": {
     "publisher": "ext.example.com",
-    "name": "graph-memory",
+    "name": "sample-memory",
     "version": "0.3.0",
-    "display_name": "Graph Memory",
-    "description": "Temporal knowledge-graph memory (Graphiti on FalkorDB) that replaces flat-file agent memory with a queryable, time-aware graph.",
+    "display_name": "Sample Memory",
+    "description": "A worked example: temporal knowledge-graph memory behind an MCP server, with a daemon, a skill, a prompt fragment and a nightly job.",
     "author": "Example Org",
     "license": "MIT",
-    "homepage": "https://ext.example.com/graph-memory",
+    "homepage": "https://ext.example.com/sample-memory",
     "keywords": [
       "memory",
       "knowledge-graph",
@@ -19,10 +19,10 @@
   "provides": {
     "mcp_servers": [
       {
-        "name": "graph-memory",
+        "name": "sample-memory",
         "transport": "stdio",
         "summary": "memory_write / memory_query over MCP",
-        "command_ref": "bin/graph-memory-mcp"
+        "command_ref": "bin/sample-memory-mcp"
       }
     ],
     "services": [
@@ -55,15 +55,15 @@
     ],
     "skills": [
       {
-        "name": "graph-memory",
+        "name": "sample-memory",
         "summary": "how to store and query graph memory",
-        "path": "skills/graph-memory/"
+        "path": "skills/sample-memory/"
       }
     ],
     "prompts": [
       {
-        "name": "graph-memory",
-        "fragment_ref": "prompts/graph-memory.md"
+        "name": "sample-memory",
+        "fragment_ref": "prompts/sample-memory.md"
       }
     ],
     "cron": [
@@ -114,25 +114,25 @@
   },
   "release": {
     "channel": "stable",
-    "published_at": "2026-08-19T10:00:00Z",
-    "valid_until": "2026-09-18T10:00:00Z",
-    "changelog": "https://ext.example.com/graph-memory/CHANGELOG.md#0-3-0",
+    "published_at": "2026-08-27T09:00:00Z",
+    "valid_until": "2027-02-23T09:00:00Z",
+    "changelog": "https://ext.example.com/sample-memory/CHANGELOG.md#0-3-0",
     "artifact": {
-      "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+      "url": "https://ext.example.com/sample-memory-0.3.0.tar.gz",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   "updates": {
     "source": {
       "kind": "github",
-      "repo": "example-org/graph-memory"
+      "repo": "example-org/sample-memory"
     },
     "check": "daily",
     "policy": "notify"
   },
   "signing": {
-    "public_key": "ed25519:QGAu840A3hi6FXcNtOL9UT/aPkmIg2XUKXW/l/mY++0=",
-    "key_id": "graph-memory-2026",
+    "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
+    "key_id": "sample-memory-2026",
     "next_key": null
   },
   "targets": [
@@ -145,7 +145,7 @@
       "enforcement": "declared",
       "delivery": {
         "method": "archive",
-        "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+        "url": "https://ext.example.com/sample-memory-0.3.0.tar.gz",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "lifecycle": {
@@ -157,12 +157,12 @@
       "component_map": {
         "mcp_servers": {
           "command": [
-            "bin/graph-memory-mcp"
+            "bin/sample-memory-mcp"
           ],
           "register": "auto"
         },
         "services": {
-          "unit": "systemd:falkordb-graphmem.service",
+          "unit": "systemd:falkordb-samplemem.service",
           "actions": [
             "daemon-reload",
             "enable",
@@ -172,7 +172,7 @@
           "health": "redis-cli -p 6379 ping"
         },
         "cron": {
-          "unit": "systemd:graphmem-compaction.timer",
+          "unit": "systemd:samplemem-compaction.timer",
           "schedule": "0 4 * * *"
         }
       }
@@ -187,7 +187,7 @@
       "enforcement": "advisory",
       "delivery": {
         "method": "archive",
-        "url": "https://ext.example.com/graph-memory-0.3.0-hermes.tar.gz",
+        "url": "https://ext.example.com/sample-memory-0.3.0-hermes.tar.gz",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "lifecycle": {
@@ -202,17 +202,17 @@
           "link": "symlink"
         },
         "tools": {
-          "module": "plugins/graph_memory/",
-          "register": "plugins/graph_memory/__init__.py"
+          "module": "plugins/sample_memory/",
+          "register": "plugins/sample_memory/__init__.py"
         },
         "mcp_servers": {
           "command": [
-            "bin/graph-memory-mcp"
+            "bin/sample-memory-mcp"
           ],
           "register": "auto"
         },
         "services": {
-          "unit": "systemd:falkordb-graphmem.service",
+          "unit": "systemd:falkordb-samplemem.service",
           "actions": [
             "daemon-reload",
             "enable",
@@ -222,7 +222,7 @@
           "health": "redis-cli -p 6379 ping"
         },
         "cron": {
-          "unit": "systemd:graphmem-compaction.timer",
+          "unit": "systemd:samplemem-compaction.timer",
           "schedule": "0 4 * * *"
         }
       }
@@ -232,7 +232,7 @@
       "enforcement": "declared",
       "delivery": {
         "method": "archive",
-        "url": "https://ext.example.com/graph-memory-0.3.0.tar.gz",
+        "url": "https://ext.example.com/sample-memory-0.3.0.tar.gz",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "lifecycle": {
@@ -243,12 +243,12 @@
       "component_map": {
         "mcp_servers": {
           "command": [
-            "bin/graph-memory-mcp"
+            "bin/sample-memory-mcp"
           ],
           "register": "auto"
         }
       }
     }
   ],
-  "signature": "8t9+DysVr2E/IApwdsTum0MtzthxRWTuePBasp7xZr63HFElN8O2vx3pT7JQR5ocjwXRDoXh1xV5BsEM2jjWCQ=="
+  "signature": "Lgl3St/6cmLWqNTpundgpxGhZuElkqnZrQ7BmXyrGQPG23BIXvSH1viIz2WCeZzz/PUjl2GZbtpoWVsdlHuMDA=="
 }

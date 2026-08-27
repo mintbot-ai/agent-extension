@@ -34,9 +34,9 @@ jobs:
         run: pytest -q tests/ conformance/
       - name: Worked example round-trips through the CLI
         run: |
-          axp validate examples/graph-memory/agent-extension.json > /dev/null
-          axp verify examples/graph-memory/agent-extension.json --keydir examples/graph-memory/agent-extension-keys.json
-          axp target examples/graph-memory/agent-extension.json --runtime hermes --runtime posix --platform linux/amd64 --runtime-version hermes=0.20.0 > /dev/null
+          axp validate examples/sample-memory/agent-extension.json > /dev/null
+          axp verify examples/sample-memory/agent-extension.json --keydir examples/sample-memory/agent-extension-keys.json
+          axp target examples/sample-memory/agent-extension.json --runtime hermes --runtime posix --platform linux/amd64 --runtime-version hermes=0.20.0 > /dev/null
 
   schema:
     name: schema validates the example
@@ -50,8 +50,8 @@ jobs:
       - run: |
           python - <<'PY'
           import json, jsonschema
-          for schema, doc in (("schema/agent-extension.schema.json", "examples/graph-memory/agent-extension.json"),
-                              ("schema/agent-extension-keys.schema.json", "examples/graph-memory/agent-extension-keys.json")):
+          for schema, doc in (("schema/agent-extension.schema.json", "examples/sample-memory/agent-extension.json"),
+                              ("schema/agent-extension-keys.schema.json", "examples/sample-memory/agent-extension-keys.json")):
               s = json.load(open(schema)); jsonschema.Draft202012Validator.check_schema(s)
               jsonschema.validate(json.load(open(doc)), s); print("ok", doc)
           PY

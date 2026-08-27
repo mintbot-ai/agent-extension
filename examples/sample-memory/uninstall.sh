@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# graph-memory — AXP standalone uninstall (§9). Idempotent: safe if already gone.
+# sample-memory — AXP standalone uninstall (§9). Idempotent: safe if already gone.
 set -euo pipefail
 
-EXT_NAME="graph-memory"
+EXT_NAME="sample-memory"
 PREFIX="${AXP_PREFIX:-/opt/${EXT_NAME}}"
 STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
-SERVICE_NAME="falkordb-graphmem.service"
+SERVICE_NAME="falkordb-samplemem.service"
 PURGE="${AXP_PURGE:-0}"   # set to 1 to also remove state/data (the graph!)
 
-log() { echo "[graph-memory] $*"; }
+log() { echo "[sample-memory] $*"; }
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
@@ -17,7 +17,7 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 if command -v docker >/dev/null 2>&1; then
-  docker rm -f graphmem-falkordb >/dev/null 2>&1 || true
+  docker rm -f samplemem-falkordb >/dev/null 2>&1 || true
 fi
 
 rm -rf "${PREFIX}"

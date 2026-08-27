@@ -154,7 +154,7 @@ def test_verify_keydir_cross_check(tmp_path, example, capsys):
     keydir = tmp_path / "keys.json"
 
     keydir.write_text(json.dumps({"publisher": "ext.example.com",
-                                  "keys": [{"public_key": pub, "extensions": ["graph-memory"]}]}))
+                                  "keys": [{"public_key": pub, "extensions": ["sample-memory"]}]}))
     assert cli.main(["verify", str(manifest_path), "--keydir", str(keydir)]) == 0
     assert "listed in the publisher key directory" in capsys.readouterr().out
 

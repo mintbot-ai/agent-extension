@@ -11,7 +11,7 @@ import pytest
 from axp import manifest, signing
 
 REPO = Path(__file__).resolve().parents[1]
-EXAMPLE = REPO / "examples" / "graph-memory"
+EXAMPLE = REPO / "examples" / "sample-memory"
 
 
 def _load(path: Path):

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# graph-memory — AXP standalone install (§9).
+# sample-memory — AXP standalone install (§9).
 #
 # Runs on a host with ZERO AXP support: `./install.sh` or `curl -fsSL <url> | bash`
 # performs the whole installation. No AXP daemon or host helper is assumed.
@@ -20,11 +20,11 @@ set -euo pipefail
 if [ -n "${AXP_CONFIG_FILE:-}" ] && [ -r "${AXP_CONFIG_FILE}" ]; then
   set -a; . "${AXP_CONFIG_FILE}"; set +a
 fi
-EXT_NAME="graph-memory"
+EXT_NAME="sample-memory"
 PREFIX="${AXP_PREFIX:-/opt/${EXT_NAME}}"
 STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FALKOR_PORT="${GRAPHMEM_FALKOR_PORT:-6379}"
-SERVICE_NAME="falkordb-graphmem.service"
+SERVICE_NAME="falkordb-samplemem.service"
 
 # Secret: from env if the host passed it, else generate one (non-interactive) or
 # prompt on a TTY.
@@ -35,11 +35,11 @@ if [ -z "${FALKOR_PASSWORD:-}" ]; then
   fi
   if [ -z "${FALKOR_PASSWORD:-}" ]; then
     FALKOR_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
-    echo "[graph-memory] generated a random FalkorDB password."
+    echo "[sample-memory] generated a random FalkorDB password."
   fi
 fi
 
-log() { echo "[graph-memory] $*"; }
+log() { echo "[sample-memory] $*"; }
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -68,8 +68,8 @@ ensure_falkordb() {
   # Prefer a container runtime; fall back to a note if none present.
   if command -v docker >/dev/null 2>&1; then
     log "ensuring FalkorDB via docker (idempotent)"
-    docker rm -f graphmem-falkordb >/dev/null 2>&1 || true
-    docker run -d --name graphmem-falkordb --restart unless-stopped \
+    docker rm -f samplemem-falkordb >/dev/null 2>&1 || true
+    docker run -d --name samplemem-falkordb --restart unless-stopped \
       -p "127.0.0.1:${FALKOR_PORT}:6379" \
       -e "FALKORDB_ARGS=--requirepass ${FALKOR_PASSWORD}" \
       falkordb/falkordb:latest >/dev/null
@@ -87,14 +87,14 @@ install_service() {
   log "installing systemd unit ${SERVICE_NAME}"
   cat > "/etc/systemd/system/${SERVICE_NAME}" <<EOF
 [Unit]
-Description=graph-memory FalkorDB store
+Description=sample-memory FalkorDB store
 After=network.target docker.service
 
 [Service]
 Type=simple
 EnvironmentFile=${STATE_DIR}/config.env
-ExecStart=/usr/bin/docker start -a graphmem-falkordb
-ExecStop=/usr/bin/docker stop graphmem-falkordb
+ExecStart=/usr/bin/docker start -a samplemem-falkordb
+ExecStop=/usr/bin/docker stop samplemem-falkordb
 Restart=on-failure
 
 [Install]

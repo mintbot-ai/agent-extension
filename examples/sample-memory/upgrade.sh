@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# graph-memory — AXP upgrade hook (§5, §7). Receives the previous version in
+# sample-memory — AXP upgrade hook (§5, §7). Receives the previous version in
 # $AXP_FROM_VERSION so a migration can branch on where it came from.
 # Idempotent and standalone, exactly like install.sh (§9).
 set -euo pipefail
 
-EXT_NAME="graph-memory"
+EXT_NAME="sample-memory"
 STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FROM_VERSION="${AXP_FROM_VERSION:-unknown}"
 
-log() { echo "[graph-memory] $*"; }
+log() { echo "[sample-memory] $*"; }
 log "upgrading from version: ${FROM_VERSION}"
 
 # Example migration gate: bump the on-disk graph schema only when crossing the

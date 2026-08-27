@@ -164,12 +164,12 @@ def test_prepare_release_per_runtime_artifacts_and_url_rules(tmp_path, example):
     assert by_runtime["posix"]["delivery"]["url"] == "https://ext.example.com/latest.tar.gz"
     assert by_runtime["posix"]["delivery"]["sha256"] == d_sha
     assert by_runtime["hermes"]["delivery"]["sha256"] == h_sha
-    assert by_runtime["hermes"]["delivery"]["url"].endswith("graph-memory-0.4.0-hermes.tar.gz")
+    assert by_runtime["hermes"]["delivery"]["url"].endswith("sample-memory-0.4.0-hermes.tar.gz")
     assert by_runtime["claude-code"]["delivery"]["sha256"] == d_sha
     assert by_runtime["openclaw"]["delivery"] == {"method": "clawhub", "package": "gm"}
     assert released["release"]["channel"] == "beta"
     assert released["release"]["artifact"]["sha256"] == d_sha
-    assert released["release"]["artifact"]["url"].endswith("graph-memory-0.4.0.tar.gz")
+    assert released["release"]["artifact"]["url"].endswith("sample-memory-0.4.0.tar.gz")
     assert "signature" not in released  # signing is a separate explicit step
 
 

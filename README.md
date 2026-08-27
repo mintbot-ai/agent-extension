@@ -27,8 +27,10 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 5. **Signing & trust** — ed25519 with Trust-On-First-Use pinning per extension
    id, "updates only from the same key", no-brick rotation, unsigned ratchet.
 6. **Honest enforcement** — declared permissions, a tier (`declared` /
-   `advisory` / `enforced`) the host really applies, and host conformance
-   profiles (Core / Trusted / Managed / Sandboxed).
+   `advisory` / `enforced`) the host really applies, host conformance
+   profiles (Core / Trusted / Managed / Sandboxed), and a reference Linux
+   sandbox recipe for lifecycle scripts (transient systemd units + a
+   name-based egress proxy — see below).
 7. **Forward compatibility** — unknown fields and component types are ignored
    by rule, vendor extensions are `x-` namespaced, runtime extras are
    `<runtime>:` namespaced.
@@ -45,11 +47,13 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 - [`docs/SIGNING.md`](docs/SIGNING.md) — sign, pin, rotate, recover.
 - [`docs/runtimes/`](docs/runtimes/) — runtime profiles (`posix`, `hermes`,
   `openclaw`, `claude-code`). Adding a runtime = adding a profile document.
-- [`examples/graph-memory/`](examples/graph-memory/) — a complete worked
-  example with `posix`, `hermes` and `claude-code` targets and standalone
-  lifecycle scripts. It is a neutral spec fixture (the conformance tests use
-  it); the real, published package lives in
-  [mintbot-ai/graph-memory](https://github.com/mintbot-ai/graph-memory)
+- [`examples/sample-memory/`](examples/sample-memory/) — a complete worked
+  example (`ext.example.com/sample-memory`, a fictional publisher) with
+  `posix`, `hermes` and `claude-code` targets and standalone lifecycle
+  scripts. It is the spec's fixture: the tests, the conformance suite and CI
+  all load it, and it verifies out of the box with the deliberately public
+  `example-signing.key` next to it. Real extensions live in their own
+  repositories — e.g. [mintbot-ai/graph-memory](https://github.com/mintbot-ai/graph-memory)
   (`mintbot.ai/graph-memory`), released with `axp release`.
 - [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -93,6 +97,34 @@ reimplementing them — the conformance suite then covers your host too.
 Trusted). Run it against the reference implementation with `pytest
 conformance/`, or against your own host by implementing the three-method
 adapter — see [conformance/README.md](conformance/README.md).
+
+## Sandboxing lifecycle scripts
+
+Declared permissions are only worth something if a host can enforce them.
+The Sandboxed profile ([docs/HOST-GUIDE.md](docs/HOST-GUIDE.md#sandboxed--enforcing-what-was-declared),
+[docs/runtimes/posix.md](docs/runtimes/posix.md)) is a concrete Linux recipe,
+running in production on the mintbot host:
+
+- every `install` / `upgrade` / `uninstall` / `health` hook runs as a
+  **transient systemd unit** (`systemd-run --wait --pipe --collect`) with
+  `ProtectSystem=strict`, `PrivateTmp` and `ReadWritePaths` limited to the
+  install prefix, the staging dir, `AXP_STATE_DIR`, `AXP_CACHE_DIR` and the
+  declared `filesystem: …:rw` scopes;
+- **egress is filtered by name, not by address**: `IPAddressDeny=any` plus
+  one loopback address where a small host-run allow-list proxy listens; the
+  unit reaches the network only through `HTTPS_PROXY`, and the proxy admits
+  `CONNECT host:port` solely for the declared `network_egress` entries
+  (wildcards included) and the publisher's own hosts. DNS, raw sockets and
+  services bound to `127.0.0.1` are unreachable from the hook;
+- the tier actually applied (`advisory`, or `declared` when systemd is
+  missing or `root: true` turns the filesystem half off) and every downgrade
+  reason are recorded in the install record and shown on the consent card.
+
+This contains the *scripts*, not the extension's runtime code — a plugin
+loaded into the agent process runs with that process's privileges, which is
+why a Hermes host reports `advisory`, never `enforced`. The sandbox lives in
+the host (systemd is a host concern), not in the runtime-neutral `axp`
+package; the guide has everything needed to reproduce it.
 
 ## Status
 

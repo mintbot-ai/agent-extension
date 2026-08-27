@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# graph-memory — AXP health hook (§5). Exit 0 = healthy, non-zero = unhealthy;
+# sample-memory — AXP health hook (§5). Exit 0 = healthy, non-zero = unhealthy;
 # the host surfaces this as green/red. Standalone and side-effect-free.
 set -euo pipefail
 
-EXT_NAME="graph-memory"
+EXT_NAME="sample-memory"
 STATE_DIR="${AXP_STATE_DIR:-/var/lib/axp/ext.example.com/${EXT_NAME}}"
 FALKOR_PORT="${GRAPHMEM_FALKOR_PORT:-6379}"
 
@@ -13,7 +13,7 @@ if [ -f "${STATE_DIR}/config.env" ]; then
   . "${STATE_DIR}/config.env"
 fi
 
-fail() { echo "[graph-memory] UNHEALTHY: $*" >&2; exit 1; }
+fail() { echo "[sample-memory] UNHEALTHY: $*" >&2; exit 1; }
 
 # Prefer redis-cli; fall back to a raw TCP PING if it is not installed.
 if command -v redis-cli >/dev/null 2>&1; then
@@ -28,5 +28,5 @@ else
   exec 3>&- 2>/dev/null || true
 fi
 
-echo "[graph-memory] healthy: FalkorDB responding on ${FALKOR_PORT}"
+echo "[sample-memory] healthy: FalkorDB responding on ${FALKOR_PORT}"
 exit 0

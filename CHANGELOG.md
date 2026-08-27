@@ -2,6 +2,17 @@
 
 ## unreleased
 
+- The worked example is now `examples/sample-memory/`
+  (`ext.example.com/sample-memory`, spec_version 0.4, fresh dates,
+  re-signed with the public example key). The old name made a spec fixture
+  look like a copy of the real `mintbot.ai/graph-memory` package, which lives
+  in its own repository. The committed `example-signing.key` did not match
+  the public key the example was signed with (the verify-out-of-the-box
+  claim only held because `axp verify` needs no private key); the example is
+  now signed with that very key and the key directory lists it. README: a
+  "Sandboxing lifecycle scripts" section summarising the systemd +
+  name-based egress recipe the reference host runs.
+
 - SPEC 9.1 + HOST-GUIDE "Unmanaged installs": how a host may take a
   repository with no manifest at all (pinned commit, notify-only updates,
   a consent card that leads with what is missing, `promotable` once a

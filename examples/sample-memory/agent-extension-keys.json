@@ -1,0 +1,12 @@
+{
+  "publisher": "ext.example.com",
+  "keys": [
+    {
+      "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
+      "key_id": "sample-memory-2026",
+      "extensions": [
+        "sample-memory"
+      ]
+    }
+  ]
+}

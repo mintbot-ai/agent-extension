@@ -70,7 +70,8 @@ SPEC §6.2 plus `AXP_HERMES_HOME` (= `HERMES_HOME`) and `AXP_HERMES_VERSION`.
   (`systemd-run --pipe` wrapper), each behind a per-extension egress proxy —
   see HOST-GUIDE, "Runtime containment". The install record lists the tier
   per component under `containment`; a component that refuses to start
-  contained runs bare and is reported `declared` with the reason.
+  under full containment keeps the half it can live with (`advisory`) and
+  only runs bare (`declared`) when neither works — each step recorded.
 - Runtime code of a Hermes *plugin* (`tools`, `hooks`, `channels`,
   `model_providers`, `memory`) executes inside the Hermes process and is
   **not** contained; an extension providing only those caps at `advisory`.

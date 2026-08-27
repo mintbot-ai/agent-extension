@@ -198,11 +198,15 @@ components it launches itself:
 - Each extension with named egress gets its **own** proxy unit
   (`DynamicUser`, deterministic `127.7.7.<n>` per extension id) so that
   `IPAddressAllow` of one extension never opens another's proxy.
-- A component that refuses to start under containment is restarted bare,
-  reported `declared` with the reason, and the extension's tier drops with
-  it — never silently. Uninstall tears units, drop-ins, the proxy and the
-  MCP entries down; an upgrade tears down what the new version no longer
-  provides.
+- A component that refuses to start under full containment goes down a
+  **ladder**, not off a cliff: the host retries with the filesystem half
+  alone, then the network half alone, and only then bare — keeping whatever
+  the daemon can live with (`advisory`) before giving up (`declared`). Each
+  rung is booked in the record ("network containment released, filesystem
+  containment kept") and the extension's tier is the weakest of its
+  components — never silently. Uninstall tears units, drop-ins, the proxy
+  and the MCP entries down; an upgrade tears down what the new version no
+  longer provides.
 - What this cannot reach: code loaded into the agent process (`tools`,
   `hooks`, `channels`, …). Those stay `advisory`, and the consent card says
   so.

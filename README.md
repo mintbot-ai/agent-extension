@@ -125,8 +125,9 @@ to its scripts: `services` become host-owned hardened systemd units (or a
 drop-in on the unit the install script created), stdio `mcp_servers` are
 registered as `systemd-run --pipe` wrappers so every server process the
 runtime spawns is contained, and each extension gets its own egress proxy
-address. Those components are reported `enforced`; a component that refuses
-to start contained runs bare and is reported `declared` with the reason.
+address. Those components are reported `enforced`; one that refuses to start
+under full containment keeps the half it can live with (`advisory`) and runs
+bare (`declared`) only when neither works — every step recorded.
 What no host can reach is code loaded *into* the agent process (a Hermes
 plugin's tools, hooks, channels) — that stays `advisory`, and the consent
 card says which is which. The sandbox lives in the host (systemd is a host

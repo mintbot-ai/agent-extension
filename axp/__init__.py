@@ -12,9 +12,12 @@ Runtime-neutral building blocks any host or publisher tool can use:
 * :mod:`axp.signing` — ed25519 keygen / sign / verify (``cryptography`` or
   the openssl CLI), the publisher key directory (§8.5) and the transactional
   TOFU :class:`~axp.signing.PinStore` (``decide`` → install → ``commit``).
+* :mod:`axp.repository` — the §3.1 repository walk (latest release → release
+  listing → repository root) and the §7.1 ``github`` listing resolver, with
+  an injected ``fetch`` so a host runs it behind its own HTTP client.
 * :mod:`axp.publish` — publisher tooling behind ``axp init`` / ``axp release``.
 * :mod:`axp.cli` — the ``axp`` command (``init | keygen | release | validate |
-  canonicalize | sign | verify | target | keydir``).
+  canonicalize | sign | verify | target | keydir | resolve``).
 
 Stdlib-only except for signing, which works with either the ``cryptography``
 package or the ``openssl`` binary — whichever the host has. Host authors:

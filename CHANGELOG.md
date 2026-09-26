@@ -2,6 +2,15 @@
 
 ## unreleased
 
+- `axp resolve <repository-url>` and `axp.repository`: the SPEC 3.1
+  repository walk as reusable, fetch-injected code (latest release → release
+  listing, pre-releases included → repository root; only an absent document
+  moves on; `…/tree/<ref>` and `…/releases/tag/<tag>` pin) plus the 7.1
+  `github` listing resolver. The command shows a publisher which document
+  hosts will install — source, signature, key listed in the publisher key
+  directory — and, with `--installed`/`--tracked`, what the update source
+  would offer. SPEC 3.1 step 3 now spells out that order.
+
 - Endpoint access (SPEC 4.2 "Endpoint access", schema `$defs.endpointAuth`,
   `axp.manifest`, HOST-GUIDE, hermes profile): an `http`/`sse` entry in
   `provides.mcp_servers` and a `provides.services` entry with an `endpoint`

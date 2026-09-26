@@ -18,12 +18,15 @@ Core ──► Trusted ──► Managed ──► Sandboxed
 1. **Discover** the manifest (SPEC §3.1): `agent-extension.json` at the URL,
    the `<link rel="agent-extension">`, `/.well-known/agent-extension.json`,
    or a repository root. HTTPS only; apply your SSRF rules to every fetch.
-   For a repository locator prefer the latest release's
-   `agent-extension.json` asset (the same document the `github` update
-   source reads, so install and update pin the same key and version) and
-   fall back to the root file; a repository is never the publisher's own
-   origin, so require a signature there and show the foreign origin on the
-   consent card (SPEC §9).
+   For a repository locator take the newest release's
+   `agent-extension.json` asset — `releases/latest`, then the release
+   listing so a pre-release on a less stable channel is found (the same
+   document the `github` update source reads, so install and update pin the
+   same key and version) — and only then the root file; only an absent
+   document moves the walk on, never a fetch error. `axp.repository.resolve`
+   is that walk with your `fetch` plugged in. A repository is never the
+   publisher's own origin, so require a signature there and show the
+   foreign origin on the consent card (SPEC §9).
 2. **Validate** and pick the target:
 
    ```python

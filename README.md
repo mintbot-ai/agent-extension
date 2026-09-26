@@ -76,6 +76,8 @@ axp release agent-extension.json --bump patch \
 #  stamp published_at/valid_until, sign, validate — in one step;
 #  add --prev-key old.key for a key-rotation release)
 axp verify agent-extension.json --artifact dist/my-ext.tar.gz   # the file you are about to upload?
+axp resolve https://github.com/you/my-ext   # after publishing: the document a host installs, signature + key directory checked
+axp resolve https://github.com/you/my-ext --installed 1.2.0 --tracked stable   # what a host on 1.2.0 would update to
 axp keydir --publisher ext.example.com --key ed25519:…@my-ext \
     -o agent-extension-keys.json        # serve at /.well-known/agent-extension-keys.json
 
@@ -88,7 +90,8 @@ axp target agent-extension.json --runtime hermes --runtime posix --runtime-versi
 
 Host authors: read [docs/HOST-GUIDE.md](docs/HOST-GUIDE.md) and reuse
 `PinStore.decide()/commit()` (the §8 trust decision), `validate` /
-`select_target`, and the `axp.updates` / `axp.versions` rules instead of
+`select_target`, `axp.repository.resolve` (the §3.1 repository walk behind
+your own HTTP client), and the `axp.updates` / `axp.versions` rules instead of
 reimplementing them — the conformance suite then covers your host too.
 
 ## Conformance

@@ -104,8 +104,13 @@ A host resolves a user-supplied *locator* to a manifest document in this order:
 2. Otherwise, for an `https://<domain>/…` URL or bare domain:
    `<link rel="agent-extension" href="…">` in the landing page `<head>`, else
    `https://<domain>/.well-known/agent-extension.json`.
-3. A git repository URL: `agent-extension.json` at the repository root (and
-   per-release copies as release assets, §7.1).
+3. A git repository URL: the newest release's `agent-extension.json` asset
+   (§7.1) — the `latest` release, else the release listing so that a
+   repository whose newest release is a pre-release resolves to it — and
+   only then `agent-extension.json` at the repository root. `…/tree/<ref>`
+   and `…/releases/tag/<tag>` pin one document. Only an absent document
+   moves a host on to the next candidate; a repository is never the
+   publisher's origin, so the document MUST be signed (§8).
 4. A local path (`file://…` or a directory): `agent-extension.json` there.
 
 Fetches MUST be HTTPS (or local). The manifest's origin SHOULD match

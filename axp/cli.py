@@ -8,6 +8,8 @@ Publisher side::
     axp release agent-extension.json --bump patch --artifact dist/my-ext.tar.gz --key signing.key
     axp sign agent-extension.json --key signing.key --in-place
     axp sign agent-extension.json --key new.key --prev-key old.key --in-place   # rotation release
+    axp resolve https://github.com/you/my-ext    # the document a host installs from the repo, verified
+    axp resolve https://github.com/you/my-ext --installed 1.2.0 --tracked stable   # what it would update to
 
 Host side::
 
@@ -28,7 +30,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, jcs, manifest, publish, signing
+from . import __version__, jcs, manifest, publish, repository, signing
 
 
 def _read_key(path: str | None) -> bytes | None:
@@ -235,6 +237,98 @@ def _cmd_target(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_key_directory(source: str) -> dict:
+    """A key directory from a local file or an https URL."""
+    if source.startswith("https://"):
+        try:
+            body = repository.http_fetch(source, repository.MAX_MANIFEST_BYTES)
+        except repository.RepositoryError as exc:
+            raise SystemExit(f"axp: cannot fetch key directory {source}: {exc}")
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise SystemExit(f"axp: key directory {source} is not valid JSON: {exc}")
+        if not isinstance(data, dict):
+            raise SystemExit(f"axp: key directory {source} is not a JSON object")
+        return data
+    return _load(source)
+
+
+def _cmd_resolve(args: argparse.Namespace) -> int:
+    """Preview the SPEC 3.1 repository walk and the checks a host runs on
+    its outcome, so a publisher sees the document hosts will install BEFORE
+    a host does: which candidate answered, whether the signature verifies
+    and whether the key is listed in the publisher's key directory."""
+    try:
+        resolution = repository.resolve(args.locator, repository.http_fetch)
+    except repository.RepositoryError as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    data = resolution.manifest
+    identity = data.get("identity") or {}
+    publisher = str(identity.get("publisher") or "")
+    name = str(identity.get("name") or "")
+    problems: list[str] = []
+    report: dict = {
+        "locator": args.locator,
+        "source": resolution.source,
+        "manifest_url": resolution.manifest_url,
+        "tried": resolution.tried,
+        "publisher": publisher,
+        "name": name,
+        "version": identity.get("version"),
+        "channel": (data.get("release") or {}).get("channel") or "stable",
+        "signature_valid": False,
+        "key_listed": None,
+        "problems": problems,
+    }
+    try:
+        manifest.validate(data)
+    except manifest.ManifestError as exc:
+        problems.append(f"invalid manifest: {exc}")
+    try:
+        report["signature_valid"] = signing.verify_manifest(data, args.pinned)
+    except signing.SigningError as exc:
+        problems.append(f"signature: {exc}")
+    if not report["signature_valid"] and not any(p.startswith("signature") for p in problems):
+        problems.append("signature INVALID" + (" against the pinned key" if args.pinned else ""))
+    if not args.no_keydir:
+        # SPEC 8.5: a host on the Trusted profile refuses a key the publisher
+        # does not list. Default: the publisher's own well-known directory -
+        # the one hosts read.
+        source = args.keydir or signing.key_directory_url(publisher)
+        report["key_directory"] = source
+        key = (data.get("signing") or {}).get("public_key")
+        try:
+            listed = signing.parse_key_directory(_load_key_directory(source), publisher=publisher, name=name or None)
+            report["key_listed"] = key in listed
+            if key not in listed:
+                problems.append(f"{key} is not listed in {source} for this extension")
+        except SystemExit as exc:
+            report["key_listed"] = False
+            problems.append(str(exc).removeprefix("axp: "))
+        except signing.SigningError as exc:
+            report["key_listed"] = False
+            problems.append(f"key directory {source}: {exc}")
+    if args.installed:
+        tracked = args.tracked or str(report["channel"])
+        try:
+            found = repository.resolve_update(args.locator, tracked, args.installed, repository.http_fetch)
+        except repository.RepositoryError as exc:
+            problems.append(f"update source: {exc}")
+            found = None
+        report["update"] = {
+            "installed": args.installed, "tracked": tracked,
+            "candidate": (found[0].get("identity") or {}).get("version") if found else None,
+            "manifest_url": found[1] if found else None,
+        }
+    if args.output:
+        Path(args.output).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        report["saved"] = args.output
+    print(json.dumps(report, indent=2))
+    return 1 if problems else 0
+
+
 def _cmd_keydir(args: argparse.Namespace) -> int:
     keys = []
     for spec in args.key:
@@ -337,6 +431,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="the version of a runtime this host runs, e.g. hermes=2026.8 (repeatable); "
                         "targets whose runtime_version constraint it fails are skipped")
     p.set_defaults(func=_cmd_target)
+
+    p = sub.add_parser("resolve", help="the manifest a host would install from a repository locator, verified")
+    p.add_argument("locator", help="https://github.com/<owner>/<repo>[.git | /tree/<ref> | /releases/tag/<tag>]")
+    p.add_argument("--pinned", help="verify the signature against this pinned key instead of the manifest's own")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--keydir", help="key directory file or https URL (default: the publisher's well-known one)")
+    group.add_argument("--no-keydir", action="store_true", help="skip the SPEC 8.5 key-directory check")
+    p.add_argument("--installed", metavar="VERSION",
+                   help="also show what the github update source offers a host that has VERSION installed")
+    p.add_argument("--tracked", metavar="CHANNEL",
+                   help="the channel that host tracks (default: the resolved manifest's channel)")
+    p.add_argument("-o", "--output", help="save the resolved manifest here")
+    p.set_defaults(func=_cmd_resolve)
 
     p = sub.add_parser("keydir", help="write a publisher key directory (SPEC 8.5) from public keys")
     p.add_argument("--publisher", required=True)

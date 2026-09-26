@@ -105,6 +105,49 @@ def test_provides_accepts_every_core_type_and_reports_them(example):
     assert _validate(example)["provides"] == ["prompts"]
 
 
+# --- endpoint access (provides.*.auth) ----------------------------------------
+
+def _http_server(**auth):
+    return {"name": "m", "transport": "http", "url": "http://127.0.0.1:8650/mcp", "auth": auth}
+
+
+@pytest.mark.parametrize("mutate,fragment", [
+    (lambda p: p.__setitem__("mcp_servers", [dict(_http_server(), auth="bearer")]), "mcp_servers.0..auth"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server()]), "auth.scheme"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer")]), "auth.token_file"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer", token_file="token")]), "state:<relative path>"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer", token_file="config:token")]), "state:<relative path>"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer", token_file="state:")]), "inside the state scope"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer", token_file="state:../token")]), "inside the state scope"),
+    (lambda p: p.__setitem__("mcp_servers", [_http_server(scheme="bearer", token_file="state:/etc/token")]), "inside the state scope"),
+    (lambda p: p.__setitem__("mcp_servers", [{"name": "m", "transport": "stdio", "command_ref": "bin/m",
+                                              "auth": {"scheme": "bearer", "token_file": "state:token"}}]), "http or sse"),
+    (lambda p: p.__setitem__("services", [{"name": "s", "kind": "daemon",
+                                           "auth": {"scheme": "bearer", "token_file": "state:token"}}]), "services.0..endpoint"),
+])
+def test_endpoint_auth_rejections(example, mutate, fragment):
+    mutate(example["provides"])
+    with pytest.raises(manifest.ManifestError, match=fragment):
+        _validate(example)
+
+
+def test_endpoint_auth_accepts_bearer_and_ignores_unknown_schemes(example):
+    example["provides"]["mcp_servers"] = [
+        _http_server(scheme="bearer", token_file="state:token"),
+        {"name": "s", "transport": "sse", "url": "http://127.0.0.1:8651/sse",
+         "auth": {"scheme": "bearer", "token_file": "state:nested/dir/token"}},
+        {"name": "open", "transport": "http", "url": "http://127.0.0.1:8652/mcp"},
+    ]
+    example["provides"]["services"] = [
+        {"name": "d", "kind": "daemon", "endpoint": "http://127.0.0.1:8650",
+         "auth": {"scheme": "bearer", "token_file": "state:token"}},
+        # An unknown scheme is ignored (SPEC 2.4): nothing else in it is checked.
+        {"name": "x", "kind": "sidecar", "endpoint": "unix:/run/x.sock",
+         "auth": {"scheme": "x-mtls", "token_file": 7}},
+    ]
+    assert "services" in _validate(example)["provides"]
+
+
 # --- requires -----------------------------------------------------------------
 
 @pytest.mark.parametrize("requires,fragment", [

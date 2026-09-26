@@ -2,6 +2,18 @@
 
 ## unreleased
 
+- Endpoint access (SPEC 4.2 "Endpoint access", schema `$defs.endpointAuth`,
+  `axp.manifest`, HOST-GUIDE, hermes profile): an `http`/`sse` entry in
+  `provides.mcp_servers` and a `provides.services` entry with an `endpoint`
+  may declare `auth: {scheme: bearer, token_file: state:<path>}` — how a
+  client authenticates there. The token file lives below the extension's own
+  state scope and is created by the extension (typically in `install`), never
+  shipped. A host that understands it fills the header into its runtime's MCP
+  registration and may show the owner, on an authenticated surface only, how
+  to connect an external client; unknown schemes are ignored (2.4). Additive
+  and backward compatible: `auth` on a `stdio` server or on a service without
+  an `endpoint` is refused, everything else is unchanged.
+
 - Runtime containment (SPEC 4.4 / 5.3 / 11, HOST-GUIDE "Runtime
   containment", hermes + posix profiles, README): the Sandboxed profile now
   covers the components a host launches itself — `services` bound with

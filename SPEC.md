@@ -193,9 +193,9 @@ Core component types and their required fields:
 
 | type              | required            | notes                                                        |
 |-------------------|---------------------|--------------------------------------------------------------|
-| `mcp_servers`     | `name`, `transport` | `transport` ∈ `stdio \| http \| sse`; `command_ref` (stdio) or `url` (http/sse). The portable tool surface — any MCP-capable runtime can use it. |
+| `mcp_servers`     | `name`, `transport` | `transport` ∈ `stdio \| http \| sse`; `command_ref` (stdio) or `url` (http/sse); `auth` (http/sse — endpoint access, below). The portable tool surface — any MCP-capable runtime can use it. |
 | `tools`           | `name`              | runtime-native tools; `input_schema_ref` (JSON Schema)        |
-| `services`        | `name`, `kind`      | `kind` ∈ `daemon \| oneshot \| sidecar`; `endpoint`           |
+| `services`        | `name`, `kind`      | `kind` ∈ `daemon \| oneshot \| sidecar`; `endpoint`; `auth` (endpoint access, below) |
 | `memory`          | `name`, `kind`      | `kind` ∈ `graph \| vector \| kv \| relational`                |
 | `skills`          | `name`              | instruction packs; `path`                                     |
 | `prompts`         | `name`              | system-prompt / persona fragments; `fragment_ref` (was `persona` in v0.2) |
@@ -207,6 +207,35 @@ Core component types and their required fields:
 
 All optional; omit what you don't ship. Unknown types are ignored (§2.4);
 vendor types use `x-` (e.g. `x-acme-dashboards`).
+
+**Endpoint access.** An `mcp_servers` entry with `transport: http | sse` and a
+`services` entry with an `endpoint` MAY carry an `auth` object saying how a
+client authenticates at that endpoint:
+
+```jsonc
+"mcp_servers": [ { "name": "mintbot", "transport": "http", "url": "http://127.0.0.1:8650/mcp",
+                   "auth": { "scheme": "bearer", "token_file": "state:token" } } ]
+```
+
+| field        | required     | meaning                                                                 |
+|--------------|--------------|-------------------------------------------------------------------------|
+| `scheme`     | yes          | `bearer` — the client sends `Authorization: Bearer <token>`. An unknown scheme is ignored (§2.4): the host then shows the endpoint without a credential. |
+| `token_file` | for `bearer` | `state:<relative path>` — the file below the extension's own `AXP_STATE_DIR` that holds the token. The extension creates it (typically in `install`); it is never part of the artifact or the manifest. Only the `state` scope is allowed: a credential is the extension's durable data. |
+
+An absent `auth` means the endpoint takes no credential, or one the host
+cannot know about. A host that understands `auth` MAY read the token file —
+as the privileged host itself, never through a lifecycle hook — in order to
+(a) register an `http`/`sse` MCP server in its runtime's MCP config with the
+header filled in, and (b) show the owner, on an authenticated surface only,
+how to connect an external client: the endpoint, the token and a ready-made
+client entry (`mcpServers.<name>` with `url` and `headers.Authorization`). It
+MUST treat the value as a secret: never log it, never write it into the
+install record or an update report, never hand it to a caller that is not the
+authenticated owner. A missing or empty token file is reported as such
+("token not created yet"), never invented. `auth` says nothing about who may
+*reach* the endpoint: the listener is still declared in
+`permissions.network_ingress`, and a loopback endpoint stays loopback — the
+host may explain how to tunnel to it, it MUST NOT expose it on its own.
 
 ### 4.3 `requires`
 

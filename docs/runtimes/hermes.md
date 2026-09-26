@@ -51,7 +51,11 @@ SPEC §6.2 plus `AXP_HERMES_HOME` (= `HERMES_HOME`) and `AXP_HERMES_VERSION`.
   extension is registered as `<ext-name>-<server>`). On a Sandboxed host a
   stdio server is registered as a `systemd-run --pipe` wrapper around the
   `command` (or the component's `command_ref` inside the retained artifact),
-  so Hermes spawns it contained.
+  so Hermes spawns it contained. An `http`/`sse` server with
+  `auth: {scheme: bearer, token_file: state:<path>}` is registered with
+  `headers.Authorization` read from that file under `AXP_STATE_DIR`; the
+  mintbot panel additionally surfaces the endpoint + token as a
+  "Connect an MCP client" card in the Extensions settings (owner-only).
 - `prompts` — fragment appended to the persona overlay (host-specific).
 - `cron` — a Hermes cron job (host-side) or a `systemd:` timer (script-side).
 - `services` — `command` → a host-owned `mintbot-ext-<publisher>-<name>-svc-

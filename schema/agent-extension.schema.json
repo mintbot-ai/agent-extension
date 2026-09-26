@@ -10,6 +10,15 @@
     "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
     "httpsUrl": { "type": "string", "pattern": "^https://" },
     "relPath": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+" },
+    "endpointAuth": {
+      "type": "object",
+      "required": ["scheme"],
+      "description": "How a client authenticates at an http/sse MCP server or a service endpoint (SPEC 4.2, Endpoint access)",
+      "properties": {
+        "scheme": { "type": "string", "description": "bearer = Authorization: Bearer <token>; an unknown scheme is ignored (2.4)" },
+        "token_file": { "type": "string", "pattern": "^state:(?!/)(?!.*(^|/)\\.\\.(/|$)).+", "description": "state:<relative path> below AXP_STATE_DIR holding the token; created by the extension, never shipped" }
+      }
+    },
     "ed25519Key": { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/]{43}=$", "description": "base64 of the 32 raw public-key bytes" },
     "versionRange": { "type": "string", "pattern": "^(\\s*(>=|<=|>|<|=|\\^|~)?[0-9]+(\\.[0-9A-Za-z-]+)*\\s*)+$" },
     "namedComponent": {
@@ -62,7 +71,8 @@
             "properties": {
               "transport": { "type": "string", "enum": ["stdio", "http", "sse"] },
               "command_ref": { "$ref": "#/$defs/relPath" },
-              "url": { "type": "string" }
+              "url": { "type": "string" },
+              "auth": { "$ref": "#/$defs/endpointAuth" }
             }
           }
         },
@@ -77,7 +87,8 @@
             "required": ["name", "kind"],
             "properties": {
               "kind": { "type": "string", "enum": ["daemon", "oneshot", "sidecar"] },
-              "endpoint": { "type": "string" }
+              "endpoint": { "type": "string" },
+              "auth": { "$ref": "#/$defs/endpointAuth" }
             }
           }
         },

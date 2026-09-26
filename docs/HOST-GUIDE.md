@@ -194,7 +194,16 @@ components it launches itself:
 - stdio `mcp_servers` are registered in the runtime's MCP config as a
   `systemd-run --wait --pipe --collect --property=… -- <argv>` wrapper, so
   every server process the runtime spawns is contained; `http`/`sse` servers
-  are URL entries and get no tier (the host runs no process).
+  are URL entries and get no tier (the host runs no process). When such an
+  entry (or a `services` entry with an `endpoint`) declares `auth` (SPEC
+  4.2, "Endpoint access"), the host reads the token file below the
+  extension's state scope itself — as root, after `install` has run, never
+  through a hook — fills the `Authorization` header into the runtime's MCP
+  entry, and can show the owner a "connect a client" card (endpoint, token,
+  ready-made client entry) on an authenticated surface only. The token is a
+  secret: keep it out of the install record, update reports and logs; a
+  missing file is reported as "token not created yet", never invented.
+  `auth` does not widen reachability — a loopback listener stays loopback.
 - Each extension with named egress gets its **own** proxy unit
   (`DynamicUser`, deterministic `127.7.7.<n>` per extension id) so that
   `IPAddressAllow` of one extension never opens another's proxy.

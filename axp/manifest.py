@@ -57,6 +57,13 @@ PROVIDES_TYPES: dict[str, tuple[str, ...]] = {
 }
 PROVIDES_ALIASES = {"persona": "prompts"}  # v0.2 name -> v0.3 name (SPEC §13)
 MCP_TRANSPORTS = ("stdio", "http", "sse")
+MCP_ENDPOINT_TRANSPORTS = ("http", "sse")
+# Endpoint access (SPEC section 4.2): the schemes this library interprets. An
+# unknown scheme is ignored (section 2.4) — the host then shows the endpoint
+# without a credential rather than refusing the package.
+ENDPOINT_AUTH_SCHEMES = ("bearer",)
+# A credential is the extension's own durable data: only this scope may hold it.
+ENDPOINT_AUTH_TOKEN_SCOPE = "state"
 # Closed set (SPEC §2.4): an unknown permission key is a refusal, because
 # ignoring it could under-warn the user.
 PERMISSION_KEYS = ("network_egress", "network_ingress", "filesystem", "secrets", "root", "reason")
@@ -243,6 +250,28 @@ def _check_identity(data: dict, origin: str | None) -> dict:
             "ext_id": f"{publisher}/{name}", "version": block["version"]}
 
 
+def _check_endpoint_auth(item: dict, path: str) -> None:
+    """``auth`` on an http/sse MCP server or a service with an ``endpoint``
+    (SPEC section 4.2, "Endpoint access"). ``scheme`` is required; a scheme this
+    library does not know is ignored, a known one is checked in full."""
+    auth = _opt_dict(item, "auth", path)
+    if auth is None:
+        return
+    scheme = _string(auth, "scheme", path + "auth.", required=True)
+    if scheme not in ENDPOINT_AUTH_SCHEMES:
+        return
+    token_file = _string(auth, "token_file", path + "auth.", required=True)
+    assert token_file is not None
+    scope, sep, relative = token_file.partition(":")
+    if not sep or scope != ENDPOINT_AUTH_TOKEN_SCOPE:
+        _fail(path + "auth.token_file",
+              f"{token_file!r} must be '{ENDPOINT_AUTH_TOKEN_SCOPE}:<relative path>' "
+              "(a credential lives in the extension's own state scope)")
+    if (not relative or relative.startswith("/") or chr(0) in relative
+            or any(part == ".." for part in relative.split("/"))):
+        _fail(path + "auth.token_file", f"{token_file!r} must name a file inside the state scope")
+
+
 def _check_provides(data: dict) -> list[str]:
     """Validate core component types; unknown types are ignored (§2.4).
     Returns the normalized (aliased) list of component types present."""
@@ -266,8 +295,16 @@ def _check_provides(data: dict) -> list[str]:
                 if field == "name" and raw_key == "persona" and "name" not in item:
                     continue  # v0.2 persona fragments had no name
                 _string(item, field, f"provides.{raw_key}[{index}].", required=True)
+            item_path = f"provides.{raw_key}[{index}]."
             if key == "mcp_servers":
-                _enum(item, "transport", f"provides.{raw_key}[{index}].", MCP_TRANSPORTS)
+                transport = _enum(item, "transport", item_path, MCP_TRANSPORTS)
+                if transport not in MCP_ENDPOINT_TRANSPORTS and item.get("auth") is not None:
+                    _fail(item_path + "auth", "is only valid with transport http or sse")
+                _check_endpoint_auth(item, item_path)
+            elif key == "services":
+                if item.get("auth") is not None:
+                    _string(item, "endpoint", item_path, required=True)
+                _check_endpoint_auth(item, item_path)
         present.append(key)
     return present
 

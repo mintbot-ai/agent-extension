@@ -319,8 +319,8 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
             found = None
         report["update"] = {
             "installed": args.installed, "tracked": tracked,
-            "candidate": (found[0].get("identity") or {}).get("version") if found else None,
-            "manifest_url": found[1] if found else None,
+            "candidate": (found.manifest.get("identity") or {}).get("version") if found else None,
+            "manifest_url": found.manifest_url if found else None,
         }
     if args.output:
         Path(args.output).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

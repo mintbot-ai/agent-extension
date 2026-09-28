@@ -9,7 +9,11 @@
   `github` listing resolver. The command shows a publisher which document
   hosts will install — source, signature, key listed in the publisher key
   directory — and, with `--installed`/`--tracked`, what the update source
-  would offer. SPEC 3.1 step 3 now spells out that order.
+  would offer. SPEC 3.1 step 3 now spells out that order. Hosts plug in
+  their own `fetch` and, if they validate or flatten manifests themselves,
+  `parse`; `NoManifest` (nothing published — the only outcome a host may
+  answer with an unmanaged install) and `Unsigned` are typed so a host maps
+  them to its own result codes.
 
 - Endpoint access (SPEC 4.2 "Endpoint access", schema `$defs.endpointAuth`,
   `axp.manifest`, HOST-GUIDE, hermes profile): an `http`/`sse` entry in

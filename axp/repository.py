@@ -20,6 +20,12 @@ Only an absent document (:class:`Absent`: HTTP 404/410) moves the walk on.
 Every other failure surfaces, so a flaky release URL never downgrades an
 install to a mutable branch. An asset the listing advertises that cannot be
 fetched, or whose version differs from its tag, is the publisher's error.
+
+The walk's own checks (tag/version consistency, channel, "is this a signed
+AXP document") always read the document as published. What a host gets back
+is ``parse(body, url)`` - by default the decoded JSON, or the host's own
+validating / normalising parser - plus the exact ``body`` bytes, whose JCS
+form is what the signature covers.
 """
 
 from __future__ import annotations
@@ -47,7 +53,7 @@ MAX_RELEASE_CANDIDATES = 5
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_LISTING_BYTES = 1024 * 1024
 
-_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 # Where a resolved document came from (``Resolution.source``).
 SOURCE_RELEASE_LATEST = "release-latest"
@@ -66,8 +72,22 @@ class Absent(RepositoryError):
     ``fetch`` raises (as :class:`RepositoryError`) stops the walk."""
 
 
+class NoManifest(RepositoryError):
+    """Every candidate was absent: the repository publishes no manifest at
+    all. The one outcome a host may answer with a different path (an
+    unmanaged install of the bare repository) - never any other failure."""
+
+
+class Unsigned(RepositoryError):
+    """The document exists but is not a signed AXP manifest. A repository is
+    never the publisher's origin, so nothing else binds it to
+    ``identity.publisher`` (SPEC 8)."""
+
+
 # ``fetch(url, max_bytes) -> bytes``; raises Absent / RepositoryError.
 Fetch = Callable[[str, int], bytes]
+# ``parse(body, url) -> dict``: what a resolved document becomes for the caller.
+Parse = Callable[[bytes, str], dict]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +121,7 @@ def manifest_candidates(url: str) -> list[str]:
     owner, repo, rest = parts[0], parts[1], parts[2:]
     if repo.endswith(".git"):
         repo = repo[:-4]
-    if not (_SEGMENT_RE.match(owner) and _SEGMENT_RE.match(repo)):
+    if not (REPO_SEGMENT_RE.match(owner) and REPO_SEGMENT_RE.match(repo)):
         return []
     if any(segment in (".", "..") for segment in (owner, repo, *rest)):
         return []
@@ -142,18 +162,22 @@ def _source_of(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Release listing (SPEC 7.1 ``github`` shape)
+# Documents
 # ---------------------------------------------------------------------------
 
-def release_version(tag: Any) -> str | None:
-    """``v1.2.3`` -> ``1.2.3``; None for a tag that is not a version."""
-    tag = str(tag or "").strip()
-    if tag.startswith("v"):
-        tag = tag[1:]
-    return tag if versions.is_version(tag) else None
+@dataclass
+class Resolution:
+    """What a host would install from a repository locator."""
+
+    manifest: dict  # ``parse(body, manifest_url)``
+    manifest_url: str
+    source: str  # one of the SOURCE_* constants
+    body: bytes  # the document exactly as fetched
+    tried: list[dict] = field(default_factory=list)  # {"url": …, "outcome": …} in walk order
 
 
 def parse_manifest(body: bytes, url: str) -> dict:
+    """The default ``parse``: the decoded JSON object, nothing more."""
     try:
         data = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
@@ -163,19 +187,37 @@ def parse_manifest(body: bytes, url: str) -> dict:
     return data
 
 
-def resolve_release_listing(
-    releases: Any, tracked_channel: str | None, installed_version: str,
-    fetch_manifest: Callable[[str], dict], *, max_candidates: int = MAX_RELEASE_CANDIDATES,
-) -> tuple[dict, str] | None:
-    """Walk a GitHub-shaped release listing newest-version-first and fetch
-    the ``agent-extension.json`` asset of each release until one sits on an
-    accepted channel. ``tracked_channel=None`` accepts every channel - the
-    install path, where the newest release is the answer whatever channel it
-    is on; the ``github`` update source passes the tracked channel and the
-    installed version (SPEC 7.2, 7.4). Drafts, releases without the asset
-    and tags that are not versions are skipped. Returns ``(manifest,
-    asset_url)`` or None when no listed release qualifies.
-    """
+def parse_listing(body: bytes, url: str) -> Any:
+    try:
+        return json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise RepositoryError(f"release listing {url} is not valid JSON: {exc}") from exc
+
+
+def release_version(tag: Any) -> str | None:
+    """``v1.2.3`` -> ``1.2.3``; None for a tag that is not a version."""
+    tag = str(tag or "").strip()
+    if tag.startswith("v"):
+        tag = tag[1:]
+    return tag if versions.is_version(tag) else None
+
+
+def _require_signed(document: dict, url: str) -> None:
+    if not (_manifest.is_axp_manifest(document) and document.get("signature")):
+        raise Unsigned(
+            f"the manifest at {url} is not a signed AXP manifest; a repository is never the "
+            "publisher's origin, so only a signature can bind it to identity.publisher (SPEC 8) - refusing"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Release listing (SPEC 7.1 ``github`` shape)
+# ---------------------------------------------------------------------------
+
+def _walk_listing(
+    releases: Any, tracked_channel: str | None, installed_version: str, fetch: Fetch, max_candidates: int,
+) -> tuple[dict, str, bytes] | None:
+    """``(document, asset_url, body)`` of the newest qualifying release."""
     if not isinstance(releases, list):
         raise RepositoryError("release listing is not a JSON array")
     candidates: list[tuple[Any, str, str]] = []
@@ -197,7 +239,16 @@ def resolve_release_listing(
             candidates.append((versions.sort_key(version), version, asset_url))
     candidates.sort(reverse=True)
     for _key, advertised, asset_url in candidates[:max_candidates]:
-        document = fetch_manifest(asset_url)
+        try:
+            body = fetch(asset_url, MAX_MANIFEST_BYTES)
+        except RepositoryError as exc:
+            # The listing advertised this asset: its absence is the publisher's
+            # error, never a reason to install HEAD instead.
+            raise RepositoryError(
+                f"could not fetch authoritative repository manifest {asset_url} "
+                f"advertised by the release listing: {exc}"
+            ) from exc
+        document = parse_manifest(body, asset_url)
         served = str((document.get("identity") or {}).get("version") or "")
         if served != advertised:
             raise RepositoryError(
@@ -205,42 +256,43 @@ def resolve_release_listing(
             )
         channel = str((document.get("release") or {}).get("channel") or updates.DEFAULT_CHANNEL)
         if tracked_channel is None or updates.channel_accepts(tracked_channel, channel):
-            return document, asset_url
+            return document, asset_url, body
     return None
+
+
+def resolve_release_listing(
+    releases: Any, tracked_channel: str | None, installed_version: str, fetch: Fetch, *,
+    parse: Parse = parse_manifest, max_candidates: int = MAX_RELEASE_CANDIDATES,
+) -> Resolution | None:
+    """Walk a GitHub-shaped release listing newest-version-first and fetch
+    the ``agent-extension.json`` asset of each release until one sits on an
+    accepted channel. ``tracked_channel=None`` accepts every channel - the
+    install path, where the newest release is the answer whatever channel it
+    is on; the ``github`` update source passes the tracked channel and the
+    installed version (SPEC 7.2, 7.4). Drafts, releases without the asset
+    and tags that are not versions are skipped. None when no listed release
+    qualifies. The signature is not judged here: an update candidate is
+    verified against the pinned key by the caller (SPEC 8).
+    """
+    found = _walk_listing(releases, tracked_channel, installed_version, fetch, max_candidates)
+    if found is None:
+        return None
+    _document, asset_url, body = found
+    return Resolution(parse(body, asset_url), asset_url, SOURCE_RELEASE_LISTING, body)
 
 
 # ---------------------------------------------------------------------------
 # The discovery walk
 # ---------------------------------------------------------------------------
 
-@dataclass
-class Resolution:
-    """What a host would install from a repository locator."""
-
-    manifest: dict
-    manifest_url: str
-    source: str  # one of the SOURCE_* constants
-    tried: list[dict] = field(default_factory=list)  # {"url": …, "outcome": …} in walk order
-
-
-def _fetch_advertised(fetch: Fetch, asset_url: str) -> dict:
-    try:
-        body = fetch(asset_url, MAX_MANIFEST_BYTES)
-    except RepositoryError as exc:
-        # The listing advertised this asset: its absence is the publisher's
-        # error, never a reason to install HEAD instead.
-        raise RepositoryError(f"could not fetch the advertised release asset {asset_url}: {exc}") from exc
-    return parse_manifest(body, asset_url)
-
-
-def resolve(locator: str, fetch: Fetch) -> Resolution:
+def resolve(locator: str, fetch: Fetch, *, parse: Parse = parse_manifest) -> Resolution:
     """Resolve a repository locator to the manifest a host installs.
 
     ``fetch(url, max_bytes)`` returns the body, raises :class:`Absent` for a
     document that does not exist and :class:`RepositoryError` for anything
     else (timeouts, TLS, refused addresses, server errors). The result is a
-    signed AXP manifest or a :class:`RepositoryError`; it is never a
-    document the walk could not vouch for.
+    signed AXP manifest (as ``parse`` sees it) or a :class:`RepositoryError`;
+    it is never a document the walk could not vouch for.
     """
     candidates = manifest_candidates(locator)
     if not candidates:
@@ -260,36 +312,25 @@ def resolve(locator: str, fetch: Fetch) -> Resolution:
         except RepositoryError as exc:
             raise RepositoryError(f"could not fetch authoritative repository manifest {url}: {exc}") from exc
         if listing:
-            found = resolve_release_listing(
-                parse_manifest_listing(body, url), None, "0.0.0", lambda u: _fetch_advertised(fetch, u),
-            )
+            found = _walk_listing(parse_listing(body, url), None, "0.0.0", fetch, MAX_RELEASE_CANDIDATES)
             if found is None:
                 tried.append({"url": url, "outcome": f"lists no release carrying {MANIFEST_FILENAME}"})
                 continue
-            document, url = found
+            document, url, body = found
         else:
             document = parse_manifest(body, url)
-        if not (_manifest.is_axp_manifest(document) and document.get("signature")):
-            raise RepositoryError(
-                f"the manifest at {url} is not a signed AXP manifest; a repository is never the "
-                "publisher's origin, so only a signature can bind it to identity.publisher (SPEC 8) - refusing"
-            )
+        _require_signed(document, url)
         tried.append({"url": url, "outcome": "resolved"})
-        return Resolution(document, url, source, tried)
-    raise RepositoryError(
+        return Resolution(parse(body, url), url, source, body, tried)
+    raise NoManifest(
         f"{locator} publishes no {MANIFEST_FILENAME} - expected a release asset or a file at the "
         f"repository root (tried: {'; '.join(t['url'] + ' (' + t['outcome'] + ')' for t in tried)})"
     )
 
 
-def parse_manifest_listing(body: bytes, url: str) -> Any:
-    try:
-        return json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise RepositoryError(f"release listing {url} is not valid JSON: {exc}") from exc
-
-
-def resolve_update(locator: str, tracked_channel: str, installed_version: str, fetch: Fetch) -> tuple[dict, str] | None:
+def resolve_update(
+    locator: str, tracked_channel: str, installed_version: str, fetch: Fetch, *, parse: Parse = parse_manifest,
+) -> Resolution | None:
     """What the ``github`` update source (SPEC 7.1) would offer a host that
     has ``installed_version`` and tracks ``tracked_channel``: the newest
     strictly-higher release on an accepted channel, or None when the host is
@@ -304,8 +345,7 @@ def resolve_update(locator: str, tracked_channel: str, installed_version: str, f
     except Absent:
         return None
     return resolve_release_listing(
-        parse_manifest_listing(body, listing_url), tracked_channel, installed_version,
-        lambda u: _fetch_advertised(fetch, u),
+        parse_listing(body, listing_url), tracked_channel, installed_version, fetch, parse=parse,
     )
 
 
@@ -318,11 +358,9 @@ def http_fetch(url: str, max_bytes: int, *, timeout: float = 20.0) -> bytes:
     rules - this is the publisher's workstation, not a host."""
     if urllib.parse.urlsplit(url).scheme != "https":
         raise RepositoryError(f"{url}: only https:// is fetched")
-    from . import __version__
-
     request = urllib.request.Request(url, headers={
         "Accept": "application/json, application/octet-stream;q=0.9, */*;q=0.1",
-        "User-Agent": f"axp/{__version__}",
+        "User-Agent": "axp-resolve/1",
     })
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

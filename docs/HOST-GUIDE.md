@@ -24,7 +24,9 @@ Core ──► Trusted ──► Managed ──► Sandboxed
    document the `github` update source reads, so install and update pin the
    same key and version) — and only then the root file; only an absent
    document moves the walk on, never a fetch error. `axp.repository.resolve`
-   is that walk with your `fetch` plugged in. A repository is never the
+   is that walk with your `fetch` (and, if you normalise manifests, your
+   `parse`) plugged in; `NoManifest` is the one failure you may answer with
+   another path such as an unmanaged install, `Unsigned` the refusal. A repository is never the
    publisher's own origin, so require a signature there and show the
    foreign origin on the consent card (SPEC §9).
 2. **Validate** and pick the target:

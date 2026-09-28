@@ -132,9 +132,12 @@ def test_repository_without_releases_falls_back_to_head(signed):
     assert "lists no release" in got.tried[1]["outcome"]
 
 
-def test_repository_publishing_nothing_is_an_error():
-    with pytest.raises(repository.RepositoryError, match="publishes no agent-extension.json"):
+def test_repository_publishing_nothing_is_a_typed_error():
+    """The one outcome a host may answer with another path (an unmanaged
+    install) is distinguishable from every other failure."""
+    with pytest.raises(repository.NoManifest, match="publishes no agent-extension.json"):
         repository.resolve(REPO, FakeFetch({}))
+    assert issubclass(repository.NoManifest, repository.RepositoryError)
 
 
 def test_fetch_error_never_downgrades_to_a_lower_candidate(signed):
@@ -146,7 +149,7 @@ def test_fetch_error_never_downgrades_to_a_lower_candidate(signed):
 
 def test_advertised_asset_that_cannot_be_fetched_is_the_publishers_error(signed):
     fetch = FakeFetch({LISTING: listing(release("v1.0.0")), HEAD: signed("1.0.0")})
-    with pytest.raises(repository.RepositoryError, match="advertised release asset"):
+    with pytest.raises(repository.RepositoryError, match="authoritative repository manifest .* advertised by the release listing"):
         repository.resolve(REPO, fetch)
 
 
@@ -157,10 +160,34 @@ def test_release_whose_manifest_version_differs_from_its_tag_is_refused(signed):
 
 
 def test_unsigned_document_from_a_repository_is_refused(signed):
-    with pytest.raises(repository.RepositoryError, match="not a signed AXP manifest"):
+    with pytest.raises(repository.Unsigned, match="not a signed AXP manifest"):
         repository.resolve(REPO, FakeFetch({LATEST: signed(unsigned=True)}))
-    with pytest.raises(repository.RepositoryError, match="not a signed AXP manifest"):
+    with pytest.raises(repository.Unsigned, match="not a signed AXP manifest"):
         repository.resolve(REPO, FakeFetch({LATEST: b'{"hello": 1}'}))
+    assert issubclass(repository.Unsigned, repository.RepositoryError)
+
+
+def test_resolution_carries_the_exact_bytes_and_honours_a_host_parse_hook(signed):
+    """A host that validates and flattens manifests its own way plugs that in
+    as ``parse``; the walk's own checks keep reading the document as
+    published, so a reshaped result never breaks them."""
+    body = signed("1.0.0")
+    seen = []
+
+    def parse(raw, url):
+        seen.append((raw, url))
+        return {"flat_version": json.loads(raw)["identity"]["version"]}
+
+    got = repository.resolve(REPO, FakeFetch({LATEST: body}), parse=parse)
+    assert got.body == body and got.manifest == {"flat_version": "1.0.0"}
+    assert seen == [(body, LATEST)]
+
+    beta = signed("2.0.0", "beta")
+    fetch = FakeFetch({asset_url("v2.0.0"): beta})
+    got = repository.resolve_release_listing([release("v2.0.0")], "beta", "1.0.0", fetch, parse=parse)
+    assert (got.source, got.manifest_url, got.body) == (repository.SOURCE_RELEASE_LISTING, asset_url("v2.0.0"), beta)
+    assert got.manifest == {"flat_version": "2.0.0"}
+    assert repository.resolve_release_listing([release("v2.0.0")], "stable", "1.0.0", fetch, parse=parse) is None
 
 
 def test_pinned_locator_has_no_fallback(signed):
@@ -182,9 +209,9 @@ def test_update_offers_only_newer_releases_on_an_accepted_channel(signed):
         asset_url("v1.0.0"): signed("1.0.0"),
     })
     stable = repository.resolve_update(REPO, "stable", "1.0.0", fetch)
-    assert stable[0]["identity"]["version"] == "1.1.0"
+    assert stable.manifest["identity"]["version"] == "1.1.0"
     beta = repository.resolve_update(REPO, "beta", "1.0.0", fetch)
-    assert beta[0]["identity"]["version"] == "1.2.0"
+    assert beta.manifest["identity"]["version"] == "1.2.0"
     assert repository.resolve_update(REPO, "beta", "1.2.0", fetch) is None
     assert repository.resolve_update(REPO, "stable", "1.1.0", fetch) is None
 

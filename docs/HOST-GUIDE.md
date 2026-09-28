@@ -60,7 +60,13 @@ Core ──► Trusted ──► Managed ──► Sandboxed
    the enforcement tier actually applied. `uninstall` / `health` later run
    from the retained copy.
 6. **Uninstall** runs `lifecycle.uninstall` from the retained artifact with
-   `AXP_PURGE=0` unless the user asked to delete data.
+   `AXP_PURGE=0` unless the user asked to delete data. Tear your own units
+   and registrations down first; a hook that exits non-zero with its prefix
+   empty has done its job (§6.4 — the strict tree denied it the final
+   `rmdir`), so remove the prefix and finish. Any other hook failure after
+   your teardown must not leave a record that claims the extension still
+   runs — mark it, and let a reinstall of the same artifact run the hooks
+   again instead of answering "already installed".
 
 Conformance: `pytest conformance/test_core.py` with your adapter.
 

@@ -495,6 +495,13 @@ prompt, §10).
   carry a one-line human status; if it begins with `{` it is a JSON object
   (`{"status":"ok","detail":"…"}`) hosts MAY render.
 - Scripts MUST be idempotent (§10).
+- Under a read-only tree an `uninstall` hook can empty `AXP_PREFIX` but not
+  unlink the prefix itself (its parent is read-only), so the idiomatic
+  `rm -rf "$AXP_PREFIX"` exits non-zero after removing everything it
+  installed. Hosts MUST treat a non-zero `uninstall` exit that leaves the
+  prefix empty (or gone) as success and remove the empty prefix themselves;
+  any other non-zero exit is the publisher's failure. Hooks SHOULD not rely
+  on this: `find "$AXP_PREFIX" -mindepth 1 -delete` exits 0 either way.
 
 ## 7. Releases, channels & updates
 

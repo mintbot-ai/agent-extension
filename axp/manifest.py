@@ -1,4 +1,4 @@
-"""AXP manifest validation and target selection (SPEC v0.3).
+"""AXP manifest validation and target selection (SPEC v0.5).
 
 Runtime-neutral reference implementation of the structural rules the spec
 states in prose and the JSON Schema states declaratively. Unlike a schema
@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import Any, Mapping, NoReturn
 
 from . import versions
+from .panel_views import PanelViewError, validate_panel_views as _validate_panel_views
 
 AXP_KIND = "agent-extension"
 SUPPORTED_SPEC_MAJORS = (0,)
@@ -40,13 +41,14 @@ ENFORCEMENT_TIERS = ("declared", "advisory", "enforced")
 UPDATE_POLICIES = ("auto", "notify", "pin", "off")
 UPDATE_CHECKS = ("hourly", "daily", "weekly", "manual")
 UPDATE_SOURCE_KINDS = {"github": "repo", "forge": "url", "feed": "url", "direct": "url"}
-LIFECYCLE_HOOKS = ("install", "upgrade", "uninstall", "health")
+LIFECYCLE_HOOKS = ("install", "upgrade", "uninstall", "health", "enable", "disable")
 REQUIRED_LIFECYCLE_HOOKS = ("install", "uninstall")
 # Core component types (SPEC §4.2) -> required fields per entry.
 PROVIDES_TYPES: dict[str, tuple[str, ...]] = {
     "mcp_servers": ("name", "transport"),
     "tools": ("name",),
     "services": ("name", "kind"),
+    "panel_views": ("name", "title", "service", "path"),
     "memory": ("name", "kind"),
     "skills": ("name",),
     "prompts": ("name",),
@@ -272,6 +274,14 @@ def _check_endpoint_auth(item: dict, path: str) -> None:
         _fail(path + "auth.token_file", f"{token_file!r} must name a file inside the state scope")
 
 
+def validate_panel_views(provides: dict) -> list[dict]:
+    """Compatibility wrapper translating the standalone helper's errors."""
+    try:
+        return _validate_panel_views(provides)
+    except PanelViewError as exc:
+        raise ManifestError(str(exc)) from exc
+
+
 def _check_provides(data: dict) -> list[str]:
     """Validate core component types; unknown types are ignored (§2.4).
     Returns the normalized (aliased) list of component types present."""
@@ -306,6 +316,7 @@ def _check_provides(data: dict) -> list[str]:
                     _string(item, "endpoint", item_path, required=True)
                 _check_endpoint_auth(item, item_path)
         present.append(key)
+    validate_panel_views(block)
     return present
 
 

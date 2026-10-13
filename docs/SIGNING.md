@@ -1,4 +1,4 @@
-# AXP signing, pinning & key rotation (v0.4)
+# AXP signing, pinning & key rotation (v0.5)
 
 Practical companion to §8 of [`../SPEC.md`](../SPEC.md): how a publisher signs
 a manifest, and how a host verifies, pins, and follows key rotation. AXP uses

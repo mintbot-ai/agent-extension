@@ -15,7 +15,7 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 
 1. **Portable description** — `identity` (publisher-namespaced) / `provides`
    (MCP servers, tools, services, memory, skills, prompts, channels, model
-   providers, hooks, cron, config) / `requires` / `permissions`.
+   providers, hooks, cron, config, optional panel views) / `requires` / `permissions`.
 2. **Per-runtime targets** — concrete install recipes per runtime, plus a
    **`posix` baseline** any host can execute with `archive` delivery and
    standalone lifecycle scripts.
@@ -37,7 +37,7 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 
 ## Layout
 
-- [`SPEC.md`](SPEC.md) — the specification (draft v0.4).
+- [`SPEC.md`](SPEC.md) — the specification (draft v0.5).
 - [`schema/agent-extension.schema.json`](schema/agent-extension.schema.json) —
   JSON Schema for manifests;
   [`schema/agent-extension-keys.schema.json`](schema/agent-extension-keys.schema.json)
@@ -55,6 +55,8 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
   `example-signing.key` next to it. Real extensions live in their own
   repositories — e.g. [mintbot-ai/graph-memory](https://github.com/mintbot-ai/graph-memory)
   (`mintbot.ai/graph-memory`), released with `axp release`.
+- [`examples/panel-view/`](examples/panel-view/) — unsigned draft 0.5 declaration
+  example with an authenticated loopback service and pin/fullscreen view.
 - [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Reference implementation: the `axp` package
@@ -108,7 +110,7 @@ The Sandboxed profile ([docs/HOST-GUIDE.md](docs/HOST-GUIDE.md#sandboxed--enforc
 [docs/runtimes/posix.md](docs/runtimes/posix.md)) is a concrete Linux recipe,
 running in production on the mintbot host:
 
-- every `install` / `upgrade` / `uninstall` / `health` hook runs as a
+- every supported lifecycle hook (including optional `enable` / `disable`) runs as a
   **transient systemd unit** (`systemd-run --wait --pipe --collect`) with
   `ProtectSystem=strict`, `PrivateTmp` and `ReadWritePaths` limited to the
   install prefix, the staging dir, `AXP_STATE_DIR`, `AXP_CACHE_DIR` and the
@@ -139,8 +141,9 @@ needed to reproduce it.
 
 ## Status
 
-**Draft v0.4** — v0.3 made the core runtime-neutral, v0.4 hardened trust
-(publisher key directory, transactional pinning) and update semantics. Field
+**Draft v0.5** — v0.3 made the core runtime-neutral, v0.4 hardened trust
+and updates, and v0.5 adds optional isolated panel views and managed-service
+enable/disable hooks. Field
 names may still change before v1.0; open questions are at the end of
 `SPEC.md`. CI runs the suite on Python 3.10 and 3.13, with and without the
 `cryptography` wheel.

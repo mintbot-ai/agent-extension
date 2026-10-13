@@ -1,16 +1,18 @@
-# Agent Extension Protocol (AXP) — SPEC v0.4 (DRAFT)
+# Agent Extension Protocol (AXP) — SPEC v0.5 (DRAFT)
 
 > Status: **draft, for review.** v0.3 was the *universality* revision (publisher-
 > namespaced identity, the runtime-neutral `posix` target with `archive`
 > delivery, the host→script environment contract, host-retained artifacts,
 > runtime-neutral permission scopes, MCP servers as a first-class component,
-> the forward-compatibility rule, host conformance profiles). v0.4 is the
+> the forward-compatibility rule, host conformance profiles). v0.4 was the
 > *hardening* revision, additive only: the publisher key directory as a
 > second trust channel for key rotation and lost-key recovery (§8.5), a
 > precise tracked-channel rule (§7.2), freshness guidance that does not
 > nag (§7.4), pinned environment semantics (§6.2), and the consent ratchet
 > for updates (§7.6). Runtime specifics live in [`docs/runtimes/`](docs/runtimes/).
-> Field names may still change before v1.0; see §13 for migrations.
+> v0.5 adds optional isolated panel views (§4.2.1) and managed-service
+> enable/disable hooks (§6.5). Field names may still change before v1.0;
+> see §13 for migrations.
 
 ## 1. Purpose
 
@@ -57,7 +59,7 @@ RFC 2119 keywords (MUST, SHOULD, MAY) are used normatively.
 ### 2.2 Versioning of this spec
 
 `spec_version` is `MAJOR.MINOR`. Minor revisions are additive: a host that
-understands `0.3` MUST read `0.4` manifests (ignoring fields it does not know,
+understands `0.3` MUST read `0.5` manifests (ignoring fields it does not know,
 §2.4). Major revisions may break. A host MUST refuse a manifest whose major it
 does not understand with a clear message, never half-parse it.
 
@@ -127,7 +129,7 @@ as schemas or prompt fragments belong in the artifact, referenced by path.
 
 ```jsonc
 {
-  "spec_version": "0.3",
+  "spec_version": "0.5",
   "kind": "agent-extension",
 
   "identity":    { … },   // §4.1 — who/what this is (publisher-namespaced)
@@ -201,6 +203,7 @@ Core component types and their required fields:
 | `mcp_servers`     | `name`, `transport` | `transport` ∈ `stdio \| http \| sse`; `command_ref` (stdio) or `url` (http/sse); `auth` (http/sse — endpoint access, below). The portable tool surface — any MCP-capable runtime can use it. |
 | `tools`           | `name`              | runtime-native tools; `input_schema_ref` (JSON Schema)        |
 | `services`        | `name`, `kind`      | `kind` ∈ `daemon \| oneshot \| sidecar`; `endpoint`; `auth` (endpoint access, below) |
+| `panel_views`     | `name`, `title`, `service`, `path`, `capabilities` | isolated host UI; optional `icon`; see §4.2.1 |
 | `memory`          | `name`, `kind`      | `kind` ∈ `graph \| vector \| kv \| relational`                |
 | `skills`          | `name`              | instruction packs; `path`                                     |
 | `prompts`         | `name`              | system-prompt / persona fragments; `fragment_ref` (was `persona` in v0.2) |
@@ -241,6 +244,101 @@ authenticated owner. A missing or empty token file is reported as such
 *reach* the endpoint: the listener is still declared in
 `permissions.network_ingress`, and a loopback endpoint stays loopback — the
 host may explain how to tunnel to it, it MUST NOT expose it on its own.
+
+### 4.2.1 `panel_views` — optional isolated host UI
+
+A panel view declares an application served by an extension service, not an
+arbitrary URL. It does not grant access to the host UI, filesystem, or APIs.
+A supporting host MAY offer it alongside its conversation UI and in a
+fullscreen presentation. This component is optional: hosts without support
+MUST ignore it and MUST NOT expose its service or manufacture a direct link.
+
+```json
+"panel_views": [{
+  "name": "desktop", "title": "Desktop", "icon": "monitor",
+  "service": "desktop", "path": "/desktop/",
+  "capabilities": ["pin", "fullscreen"]
+}]
+```
+
+- `name`, `title`, `service`, `path`, and `capabilities` are REQUIRED; `icon`
+  is optional. `title` and `icon`, when present, are non-empty strings.
+  Hosts MUST render titles as text, never markup. `icon` is a host-interpreted
+  hint, never executable markup or a URL to fetch; unknown hints use a fallback.
+- View names MUST be unique within the extension. `name` and `service` use
+  `[a-z0-9][a-z0-9_-]*`, at most 64 characters, with no trailing whitespace.
+  `service` MUST match exactly one `provides.services[].name`.
+- The referenced service's `endpoint` MUST be `http://127.0.0.1:<port>` or
+  `http://[::1]:<port>`, with an optional final `/`. The explicit decimal port
+  MUST be 1–65535 (one to five digits). No hostname, alternate IP spelling,
+  userinfo, query, fragment, whitespace, or other path is allowed. This
+  restriction applies only to services referenced by panel views.
+- `path` is the upstream root-relative entry path, e.g. `/desktop/` or `/`.
+  It MUST use unencoded ASCII URI path characters: letters, digits, `/`,
+  and `._~!$&'()*+,;=:@-`. It MUST NOT contain repeated slashes, `.` or `..`
+  segments, backslashes, whitespace, control characters, query or fragment.
+  Percent escapes are deliberately disallowed, including double encoding,
+  to avoid traversal/slash ambiguity between proxy and upstream decoders.
+  Validators MUST reject rather than normalize invalid values.
+- `capabilities` MUST be a list of strings (possibly empty). `pin` means the
+  host may offer a view pinned beside conversation; `fullscreen` means it may
+  offer an expanded presentation. Unknown strings MUST be ignored, not cause
+  rejection or grant extra privileges. These are presentation hints, not
+  permission grants or a requirement to implement a particular layout.
+
+**Host-owned transport.** A supporting host MUST use an authenticated,
+view-scoped HTTP/WebSocket prefix mount; it MUST NOT accept a browser-selected
+upstream URL. The host resolves the service and path from the installed,
+validated manifest. It MUST retain authority over routing, redirects and
+WebSocket upgrades, never follow a redirect to a different origin or outside
+the permitted view subtree. A view at `/desktop/` is confined to that subtree;
+an entry document such as `/desktop/index.html` uses its parent `/desktop/`
+as the asset/WebSocket subtree. `/` grants the referenced service's root.
+Packages MUST use relative URLs within that subtree or be prefix-aware;
+hosts need not rewrite application source. Query strings on application
+requests are distinct from manifest paths; hosts MUST remove host credentials
+from them before any forwarding.
+
+**Isolation and credentials.** Extension HTML is untrusted. Hosts MUST isolate
+it from their own document origin and privileged APIs. A browser host SHOULD
+use a sandboxed iframe with `allow-scripts` but without `allow-same-origin`,
+or an equivalently isolated origin. Pin/fullscreen MUST preserve this isolation.
+Owner/member credentials MUST NOT appear in iframe URLs (the application can
+read its own location), HTML, messages, logs, or upstream requests. Extensions
+receive no host login/session/API tokens. A host MAY instead mint an opaque,
+short-lived, revocable capability scoped to the authenticated principal,
+installed extension and one view, usable only at that view's proxy prefix.
+This capability conveys no other host authority. The host strips the prefix
+and capability before forwarding; never pass it to the service.
+
+Authenticate capability issuance using the host's normal authenticated,
+CSRF-protected UI. Check capability validity, expiry, principal authorization
+and the enabled install on EVERY request and WebSocket upgrade. Ignore host
+cookies/Authorization at capability-route ingress, strip them before upstream
+forwarding, and never allow upstream cookies or authentication challenges to
+alter the host session. A sandbox may send `Origin: null`; accept it (and
+supply the minimal necessary CORS response) only for a valid scoped capability,
+not as a general CORS exemption. Use `Referrer-Policy: no-referrer` and
+`Cache-Control: no-store` on issuance and proxy responses; redact capabilities
+from logs. Revocation, expiry, principal access loss, disable and uninstall
+MUST revoke access and close existing WebSockets, not just reject new ones.
+
+A service MAY use the existing `auth: {scheme: bearer, token_file: state:...}`
+contract. The host reads the extension-owned token securely within its state
+scope and injects it only on the upstream hop, replacing any client header.
+Missing/empty token files or unsupported auth schemes MUST fail closed for
+panel proxying; never fall back to forwarding owner credentials. Ordinary
+endpoint display rules above are unchanged. Panel views are the explicit,
+authenticated exception to the rule against exposing loopback endpoints.
+
+The reference `validate_panel_views(provides)` checks declaration structure,
+reference uniqueness, path, origin and existing bearer-file syntax without
+mutation or I/O, returning detached view dictionaries (`[]` when absent) or
+raising `PanelViewError`. It lives in the standalone stdlib-only
+`axp/panel_views.py`; whole-manifest validation translates its errors to
+`ManifestError`. Hosts MUST implement the transport/isolation/lifecycle rules;
+passing validation alone does not make a proxy secure. Schema-only validation
+cannot check cross-component references or their endpoint restrictions.
 
 ### 4.3 `requires`
 
@@ -449,12 +547,12 @@ them are set (§10), using the listed defaults.
 
 | variable              | set on       | meaning / default when unset                                  |
 |-----------------------|--------------|---------------------------------------------------------------|
-| `AXP_SPEC_VERSION`    | all          | the spec version the HOST implements (`0.4`) — not the manifest's |
-| `AXP_HOST`            | all          | `<host-id>/<host-version>` (`mintbot/2026.8`, `axp-cli/0.4.0`) |
+| `AXP_SPEC_VERSION`    | all          | the spec version the HOST implements (`0.5`) — not the manifest's |
+| `AXP_HOST`            | all          | `<host-id>/<host-version>` (`mintbot/2026.8`, `axp-cli/0.5.0`) |
 | `AXP_RUNTIME`         | all          | runtime id of the chosen target (`posix`, `hermes`, …)         |
 | `AXP_RUNTIME_VERSION` | all          | runtime version if known                                       |
 | `AXP_ENFORCEMENT`     | all          | tier actually applied to this run (`declared\|advisory\|enforced`) |
-| `AXP_HOOK`            | all          | `install \| upgrade \| uninstall \| health`                     |
+| `AXP_HOOK`            | all          | `install \| upgrade \| uninstall \| health \| enable \| disable`                     |
 | `AXP_EXT_ID`          | all          | `<publisher>/<name>`                                          |
 | `AXP_EXT_PUBLISHER`   | all          | publisher DNS name                                            |
 | `AXP_EXT_NAME`        | all          | name slug                                                     |
@@ -463,7 +561,7 @@ them are set (§10), using the listed defaults.
 | `AXP_PREFIX`          | all          | suggested install prefix; default `/opt/<name>` (root) or `~/.local/opt/<name>` |
 | `AXP_STATE_DIR`       | all          | durable data dir (scope `state`); default `/var/lib/axp/<publisher>/<name>` or `~/.local/state/axp/<publisher>/<name>` |
 | `AXP_CACHE_DIR`       | all          | disposable cache dir (scope `cache`); default `$XDG_CACHE_HOME/axp/<publisher>/<name>` |
-| `AXP_ARTIFACT_DIR`    | all          | the unpacked artifact the running hook belongs to: the staging dir during `install`/`upgrade` (retention happens after success, §6.1), the retained dir for `uninstall`/`health`; default = script's own dir |
+| `AXP_ARTIFACT_DIR`    | all          | the unpacked artifact the running hook belongs to: the staging dir during `install`/`upgrade` (retention happens after success, §6.1), the retained dir for `uninstall`/`health`/`enable`/`disable`; default = script's own dir |
 | `AXP_CONFIG_FILE`     | install, upgrade | path to a 0600 **dotenv-format** file with the user's config values incl. secrets (§6.3); unset = use defaults / prompt |
 | `AXP_PURGE`           | uninstall    | `1` = also delete `AXP_STATE_DIR`; default `0` (keep user data)  |
 | `AXP_NONINTERACTIVE`  | all          | `1` = never prompt (host-driven run); default unset (may prompt on a TTY) |
@@ -488,7 +586,7 @@ prompt, §10).
 
 ### 6.4 Exit codes and output
 
-- `install`/`upgrade`/`uninstall`: exit 0 = success; non-zero = failure; the
+- `install`/`upgrade`/`uninstall`/`enable`/`disable`: exit 0 = success; non-zero = failure; the
   host shows the last lines of stderr/stdout to the user. Exit **75**
   (`EX_TEMPFAIL`) means "retry later" (e.g. a dependency download failed).
 - `health`: exit 0 = healthy, 1 = unhealthy, 2 = unknown/degraded. Stdout MAY
@@ -502,6 +600,29 @@ prompt, §10).
   prefix empty (or gone) as success and remove the empty prefix themselves;
   any other non-zero exit is the publisher's failure. Hooks SHOULD not rely
   on this: `find "$AXP_PREFIX" -mindepth 1 -delete` exits 0 either way.
+
+### 6.5 Optional enable / disable
+
+`lifecycle.enable` and `lifecycle.disable` are OPTIONAL artifact-relative hook
+paths for runtime-neutral managed-service activation/deactivation. They run
+from the retained artifact with the same environment, containment, timeout,
+output and exit-code rules as other hooks; `AXP_HOOK` identifies the action.
+They MUST be idempotent and MUST preserve installed files and durable data.
+They are not replacements for install/uninstall and MUST NOT require a
+particular service manager. A host may manage services via `component_map`
+without these hooks; absent hooks do not prevent host-owned activation.
+
+On disable, the host MUST first persist the disabled state, revoke all panel
+capabilities/proxy routes, and close active WebSockets, then stop its managed
+services and invoke the optional disable hook. Hook failure MUST NOT restore
+proxy access; report any service that failed to stop. On enable, run the
+optional enable hook, start host-managed services and check readiness before
+issuing new view capabilities. Failure MUST leave the view inaccessible. Old
+capabilities MUST NOT become valid again after re-enable, reinstall or update.
+Uninstall similarly revokes access before invoking extension code. A disabled
+extension stays disabled across restart and update; hooks MUST NOT accidentally
+reactivate it. Hosts without secure lifecycle/proxy support MUST leave views
+unexposed, even when the rest of the extension installs successfully.
 
 ## 7. Releases, channels & updates
 
@@ -783,6 +904,17 @@ which enforcement tier it can offer — lives in one document per runtime under
 Adding a runtime = adding a profile document. The core spec does not change.
 
 ## 13. Migration
+
+### v0.4 → v0.5 (additive)
+
+Add optional `provides.panel_views` (§4.2.1) and optional lifecycle `enable` /
+`disable` (§6.5). Existing manifests without these fields remain valid. Hosts
+that do not support views ignore their declarations and MUST NOT expose them.
+Unknown capability strings are retained but not interpreted. The reference
+package and new publisher skeletons use 0.5; the signed 0.4 sample-memory
+fixture remains unchanged, and the separate unsigned panel-view example
+illustrates the new fields. Validators recognizing panel_views must apply its
+semantic checks in addition to the JSON Schema.
 
 ### v0.3 → v0.4 (additive)
 

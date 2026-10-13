@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-extension.org/schema/agent-extension-keys-0.4.json",
+  "$id": "https://agent-extension.org/schema/agent-extension-keys-0.5.json",
   "title": "AXP publisher key directory",
   "description": "Served at https://<publisher>/.well-known/agent-extension-keys.json (SPEC section 8.5): the keys a publisher currently signs with. Hosts consult it when a manifest's signing key differs from the pinned one (rotation must move to a listed key; a listed new key with the pinned key delisted is a lost-key recovery that needs the user's explicit consent) and may consult it on first use (strict mode). Unknown fields are ignored.",
   "type": "object",

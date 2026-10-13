@@ -2,7 +2,7 @@
 preparation (``axp release``).
 
 The goal is that publishing an extension takes minutes, not a reading of the
-spec: ``init`` writes a structurally valid v0.3 manifest skeleton (all-zero
+spec: ``init`` writes a structurally valid v0.5 manifest skeleton (all-zero
 digest placeholders — valid hex, so validation passes before the first real
 release), and ``release`` does everything a version bump needs in one step:
 
@@ -42,7 +42,7 @@ def skeleton(
     runtimes: tuple[str, ...] = ("posix",),
     base_url: str | None = None,
 ) -> dict:
-    """A structurally valid v0.3 manifest to start from.
+    """A structurally valid v0.5 manifest to start from.
 
     Digests are all-zero placeholders (valid hex, so ``axp validate`` passes
     immediately); ``axp release`` replaces them with real ones. The update
@@ -58,7 +58,7 @@ def skeleton(
         raise PublishError("base url must be https://")
     artifact_url = f"{base}/{name}-0.1.0.tar.gz"
     return {
-        "spec_version": "0.3",
+        "spec_version": "0.5",
         "kind": "agent-extension",
         "identity": {
             "publisher": publisher,

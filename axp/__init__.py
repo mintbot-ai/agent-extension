@@ -4,6 +4,7 @@ Runtime-neutral building blocks any host or publisher tool can use:
 
 * :mod:`axp.manifest` — structural validation, v0.2 compatibility readings,
   and §5 target selection (platforms + ``runtime_version``).
+* :mod:`axp.panel_views` — standalone panel-view validation for host vendoring.
 * :mod:`axp.versions` — the §4.3 version / constraint grammar (semver and
   calver, pre-releases, ``^`` / ``~``).
 * :mod:`axp.updates` — §7 rules: channels, policy strings, freshness, and the
@@ -28,6 +29,7 @@ from .jcs import JCSError, canonicalize, signing_input
 from .updates import PolicyError, channel_accepts, is_expired, parse_policy, permissions_widened
 from .versions import VersionError, compare, is_newer, parse_constraint, satisfies
 from .manifest import ManifestError, ext_id, host_platform, is_axp_manifest, select_target, validate
+from .panel_views import PanelViewError, validate_panel_views
 from .signing import (
     PinStore,
     SigningError,
@@ -40,11 +42,12 @@ from .signing import (
     verify_manifest,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "JCSError",
     "ManifestError",
+    "PanelViewError",
     "PolicyError",
     "VersionError",
     "channel_accepts",
@@ -71,5 +74,6 @@ __all__ = [
     "sign_manifest",
     "signing_input",
     "validate",
+    "validate_panel_views",
     "verify_manifest",
 ]

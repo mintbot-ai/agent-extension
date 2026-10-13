@@ -27,7 +27,7 @@ def test_schemas_are_valid_and_accept_their_example(schema_name, document_name):
     schema = _load(REPO / "schema" / schema_name)
     jsonschema.Draft202012Validator.check_schema(schema)
     jsonschema.validate(_load(EXAMPLE / document_name), schema)
-    assert schema["$id"].endswith("-0.4.json")
+    assert schema["$id"].endswith("-0.5.json")
 
 
 def test_keys_schema_rejects_malformed_entries():

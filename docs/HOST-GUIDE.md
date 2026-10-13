@@ -70,6 +70,105 @@ Core ──► Trusted ──► Managed ──► Sandboxed
 
 Conformance: `pytest conformance/test_core.py` with your adapter.
 
+## Optional panel views (AXP 0.5)
+
+Panel support is a host feature, not a new runtime or an iframe URL supplied
+by an extension. Validate the whole manifest before installation; hosts which
+need to re-check persisted declarations can also call:
+
+```python
+from axp import PanelViewError, validate_panel_views
+views = validate_panel_views(manifest["provides"])  # list[dict]; raises PanelViewError
+```
+
+The standalone `axp/panel_views.py` module is stdlib-only and can be byte-vendored
+without other package modules. Its helper returns detached copies of declared
+views (or `[]` when absent), preserves unknown fields/capability strings, and
+raises its own `PanelViewError(ValueError)`. Whole-manifest `validate` translates
+that into `ManifestError`. The helper performs no network calls, routing, token
+reads or capability filtering. Preserve unknown fields for signing; interpret only `pin` and
+`fullscreen` in the UI. Resolve `service` to its single declared service, not
+to an arbitrary request parameter. Only referenced services need the strict
+HTTP literal-loopback origin; other AXP service protocols remain unchanged.
+Display the panel/service exposure on the consent surface. Do not expose views
+on a host that cannot implement the isolation and revocation requirements.
+
+### Isolated capability proxy
+
+1. Issue an unpredictable, short-lived capability only from the normal
+   authenticated and CSRF-protected host UI. Store its principal, extension
+   install generation, view and expiry server-side. A prefix such as
+   `/views/<opaque-capability>/` is illustrative, not prescribed by AXP.
+2. Embed only that restricted prefix in a sandboxed iframe with
+   `sandbox="allow-scripts"` (no `allow-same-origin`). Owner/member credentials
+   must never occur in its `src`: sandboxed scripts can read their own URL.
+   Use the same isolated frame in pin and fullscreen modes. Grant no host API
+   authority through `postMessage`; validate messages against frame identity.
+3. Check expiry, principal authorization, install generation and enabled state
+   on every HTTP request and WebSocket upgrade. Maintain live socket ownership
+   so revocation/expiry/access loss closes already-open sockets. A restart
+   should invalidate ephemeral capabilities, never silently extend them.
+4. Ignore host cookies and Authorization at the capability endpoint. Strip
+   them, capability prefixes, host credential query parameters and identifying
+   headers before upstream forwarding. Build an allowlist of forwarded
+   headers; do not blindly copy client, proxy or WebSocket handshake headers.
+   Upstream Authorization, if needed, comes only from the extension's
+   `state:` bearer file. Resolve it beneath that extension's state root without
+   following escaping symlinks; a missing, empty or unsafe file fails closed.
+   Strip upstream Set-Cookie and other host-session-affecting headers. Never
+   leak upstream bearer tokens or general host tokens to application HTML.
+5. Support the sandbox's `Origin: null` and required CORS preflights ONLY at
+   the valid scoped capability route. Do not enable wildcard credentialed CORS
+   on the host API. WebSocket handshakes require the same capability checks;
+   `Origin: null` by itself is never authorization.
+6. Fix the upstream origin from the validated service and confine application
+   requests to the view subtree (SPEC §4.2.1). Reject malformed/encoded
+   traversal and absolute URLs before joining paths; do not follow upstream
+   redirects to a new origin or outside that subtree. Applications must use
+   relative asset/WebSocket URLs or explicitly support prefix mounting.
+7. Use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; redact
+   capability URLs in access/error logs and telemetry. The browser application
+   necessarily sees its own restricted capability, so keep its authority and
+   lifetime minimal. The upstream service must not receive it.
+
+The proxy is deliberately a host responsibility; `axp` is a runtime-neutral
+validator and signing library, not an HTTP server. Never embed the raw
+loopback endpoint in the UI or open its listening port to the network.
+
+### Activation and secure disable
+
+Support the optional `enable`/`disable` hooks using the same retained artifact,
+`AXP_HOOK`, environment, timeout and containment as install hooks. Hooks need
+not call systemd; use whatever managed-service implementation the host has.
+A `component_map.services.command` remains host-owned: hooks do not start a
+second copy. Preserve disabled state across restarts and upgrades.
+
+Disable/uninstall ordering: persist disabled/revoked state → revoke capabilities
+and close sockets → stop managed services → invoke the optional disable or
+uninstall hook. A hook error never reopens access. Enable ordering: optional
+enable hook → start managed services → readiness check → allow new capability
+issuance. Failure stays closed. Do not reuse tickets across enable/update/
+reinstall; old sessions must not attach to a different installation.
+
+### Host integration acceptance checklist
+
+`pytest conformance/test_panel_views.py` checks 0.5 declarations, not a live
+proxy. The host's own HTTP/browser tests MUST additionally verify:
+
+- unauthenticated and cross-principal issuance fails; invalid, expired,
+  revoked and wrong-view capabilities fail on HTTP AND WebSockets;
+- HTTP assets and a real WebSocket round trip work under the mounted prefix;
+- owner/member cookies, Authorization and credential query values never reach
+  the upstream; only the declared service bearer token does;
+- frame scripts cannot read the parent DOM/cookies or call privileged host APIs;
+  iframe URLs contain no owner/member credentials;
+- `Origin: null` succeeds only with the scoped capability; arbitrary null-origin
+  requests are rejected; cache/referrer headers and log redaction are enforced;
+- redirects/path tricks cannot change the origin or escape the subtree;
+- disable/uninstall/expiry/access loss close existing sockets immediately;
+  hook failure stays revoked; re-enable never resurrects old capabilities;
+- hosts without support expose neither a panel nor a direct service link.
+
 ## Trusted — signatures, pinning, rotation
 
 The trust decision is a pure function over (manifest, pin state, key

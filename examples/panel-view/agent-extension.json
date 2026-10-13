@@ -1,0 +1,49 @@
+{
+  "spec_version": "0.5",
+  "kind": "agent-extension",
+  "identity": {
+    "publisher": "ext.example.com",
+    "name": "panel-view",
+    "version": "0.1.0",
+    "display_name": "Example Panel View",
+    "description": "Unsigned, illustrative panel view manifest; not a published installable release."
+  },
+  "provides": {
+    "services": [{
+      "name": "desktop",
+      "kind": "daemon",
+      "endpoint": "http://127.0.0.1:6080",
+      "auth": {"scheme": "bearer", "token_file": "state:desktop/token"}
+    }],
+    "panel_views": [{
+      "name": "desktop",
+      "title": "Desktop",
+      "icon": "monitor",
+      "service": "desktop",
+      "path": "/desktop/",
+      "capabilities": ["pin", "fullscreen"]
+    }]
+  },
+  "permissions": {
+    "network_ingress": ["127.0.0.1:6080/tcp"],
+    "filesystem": ["state:rw"],
+    "root": false
+  },
+  "targets": [{
+    "runtime": "posix",
+    "delivery": {
+      "method": "archive",
+      "url": "https://ext.example.com/panel-view-0.1.0.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "lifecycle": {
+      "install": "install.sh",
+      "uninstall": "uninstall.sh",
+      "enable": "enable.sh",
+      "disable": "disable.sh"
+    },
+    "component_map": {
+      "services": {"command": ["bin/desktop-service"], "restart": "on-failure"}
+    }
+  }]
+}

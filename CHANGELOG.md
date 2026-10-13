@@ -1,6 +1,26 @@
 # Changelog
 
-## unreleased
+## unreleased — draft 0.5
+
+- Add optional `provides.panel_views`: unique safe names, title/icon hints,
+  service references, strict literal-loopback HTTP origins, unencoded safe
+  entry paths and forward-compatible string capabilities (`pin`, `fullscreen`).
+  Export `axp.validate_panel_views(provides) -> list[dict]` and `PanelViewError`
+  from a standalone stdlib-only `axp/panel_views.py` module for byte-vendoring;
+  integrate it into whole-manifest `validate`.
+- Specify host-owned HTTP/WebSocket prefix proxying and isolated browser views:
+  short-lived principal/extension/view-scoped capabilities, no owner/member
+  credentials in frame URLs or upstream requests, scoped null-origin handling,
+  no-store/no-referrer, and socket-closing revocation on disable/uninstall/expiry.
+  The reference library validates declarations; actual proxy enforcement stays
+  in each host and has a separate integration acceptance checklist.
+- Add optional runtime-neutral lifecycle `enable`/`disable` hooks. Secure
+  disable revokes access before stopping services or invoking extension code;
+  failed hooks never restore access. Unsupported hosts must not expose views.
+- Bump package, publisher skeleton, schemas and current spec to 0.5. Add an
+  unsigned illustrative panel-view fixture and declaration conformance tests;
+  preserve the existing signed sample-memory fixture byte-for-byte.
+
 
 - `axp resolve <repository-url>` and `axp.repository`: the SPEC 3.1
   repository walk as reusable, fetch-injected code (latest release → release

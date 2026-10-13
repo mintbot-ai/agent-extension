@@ -168,10 +168,25 @@ def test_rejects_unsafe_mount_paths(panel, path):
         manifest.validate_panel_views(panel["provides"])
 
 
-@pytest.mark.parametrize("path", ["/", "/desktop/", "/desktop/index.html", "/v1.2/a-b_~!"])
+@pytest.mark.parametrize("path", ["/", "/desktop", "/desktop/", "/desktop/index.html", "/v1.2/a-b_~!"])
 def test_accepts_unambiguous_paths(panel, path):
     panel["provides"]["panel_views"][0]["path"] = path
     manifest.validate_panel_views(panel["provides"])
+
+
+@pytest.mark.parametrize("path,subtree", [
+    ("/", "/"), ("/desktop", "/"), ("/desktop/", "/desktop/"),
+    ("/desktop/index.html", "/desktop/"),
+])
+def test_documented_entry_paths_and_proxy_subtrees(panel, path, subtree):
+    # Routing is host-owned. Lock down its normative examples without adding
+    # a routing implementation to this declaration-only validator.
+    panel["provides"]["panel_views"][0]["path"] = path
+    manifest.validate(panel)
+    schema = json.loads((REPO / "schema/agent-extension.schema.json").read_text())
+    jsonschema.validate(panel, schema)
+    spec = (REPO / "SPEC.md").read_text()
+    assert f"| `{path}` | `{subtree}` |" in spec
 
 
 BAD_ENDPOINTS = [

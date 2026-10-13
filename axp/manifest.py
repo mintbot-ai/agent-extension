@@ -3,8 +3,9 @@
 Runtime-neutral reference implementation of the structural rules the spec
 states in prose and the JSON Schema states declaratively. Unlike a schema
 validator it also implements the *semantics*: the §2.4 forward-compatibility
-rule (ignore unknown fields and component types, refuse unknown
-security-relevant enum values), the §13 v0.2 compatibility readings, and §5
+rule (ignore unknown fields and component types except closed permission-key
+and lifecycle-hook vocabularies, refuse unknown security-relevant enum values),
+the §13 v0.2 compatibility readings, and §5
 target selection for a concrete host.
 
 Two entry points:
@@ -41,6 +42,8 @@ ENFORCEMENT_TIERS = ("declared", "advisory", "enforced")
 UPDATE_POLICIES = ("auto", "notify", "pin", "off")
 UPDATE_CHECKS = ("hourly", "daily", "weekly", "manual")
 UPDATE_SOURCE_KINDS = {"github": "repo", "forge": "url", "feed": "url", "direct": "url"}
+# Closed vocabulary (§2.4), including namespaced keys. Pre-0.5 validators
+# reject enable/disable; adding the panel helper alone cannot upgrade them.
 LIFECYCLE_HOOKS = ("install", "upgrade", "uninstall", "health", "enable", "disable")
 REQUIRED_LIFECYCLE_HOOKS = ("install", "uninstall")
 # Core component types (SPEC §4.2) -> required fields per entry.

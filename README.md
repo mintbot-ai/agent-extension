@@ -32,8 +32,10 @@ HTTP servers. Nothing in the core names a vendor, a product, or a registry.
    sandbox recipe for lifecycle scripts (transient systemd units + a
    name-based egress proxy — see below).
 7. **Forward compatibility** — unknown fields and component types are ignored
-   by rule, vendor extensions are `x-` namespaced, runtime extras are
-   `<runtime>:` namespaced.
+   by rule except for closed permission-key and lifecycle-hook vocabularies;
+   vendor extensions are `x-` namespaced, runtime extras are `<runtime>:`
+   namespaced outside those closed vocabularies. Declaring `enable`/`disable`
+   requires a 0.5-capable host; older validators reject those hooks.
 
 ## Layout
 

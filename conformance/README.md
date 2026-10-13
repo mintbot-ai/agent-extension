@@ -13,7 +13,10 @@ claiming a profile SHOULD pass the corresponding module:
 are exercised by host-specific integration tests, not here.)
 
 `test_panel_views.py` targets validators that understand the 0.5 panel component.
-Older hosts may ignore this component under §2.4 and should run the Core/Trusted
+Older hosts may ignore this component under §2.4 only if the manifest does not
+also declare unsupported lifecycle hooks: pre-0.5 reference validators/schemas
+reject `enable`/`disable`. Upgrade to 0.5 for activation hooks; lifecycle keys
+remain a closed vocabulary. Older hosts should run the Core/Trusted
 modules without claiming 0.5 panel validation. Passing declaration tests does
 not certify browser isolation or proxy security: run the host integration
 acceptance checklist in `docs/HOST-GUIDE.md`, including credential stripping,

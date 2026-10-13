@@ -58,10 +58,14 @@ RFC 2119 keywords (MUST, SHOULD, MAY) are used normatively.
 
 ### 2.2 Versioning of this spec
 
-`spec_version` is `MAJOR.MINOR`. Minor revisions are additive: a host that
-understands `0.3` MUST read `0.5` manifests (ignoring fields it does not know,
-§2.4). Major revisions may break. A host MUST refuse a manifest whose major it
-does not understand with a clear message, never half-parse it.
+`spec_version` is `MAJOR.MINOR`. Minor revisions preserve existing manifests.
+A host MUST NOT refuse a manifest solely because its minor version is newer:
+it ignores unknown fields and component types subject to the closed-vocabulary
+exceptions in §2.4. New entries in closed vocabularies can require a host
+upgrade: pre-0.5 reference validators and schemas reject `enable` / `disable`
+lifecycle hooks rather than ignoring them (§13). Major revisions may break.
+A host MUST refuse a manifest whose major it does not understand with a clear
+message, never half-parse it.
 
 ### 2.3 Namespacing
 
@@ -72,9 +76,11 @@ Three kinds of identifier appear in the manifest, all lowercase:
   `state`, `archive`, `posix`, `mcp_servers`.
 - **Runtime-scoped identifiers** are `<runtime>:<word>`, e.g. `hermes:skills`
   (a filesystem scope only Hermes hosts understand), `openclaw:channels`. A
-  host that does not implement `<runtime>` MUST ignore them.
+  host that does not implement `<runtime>` MUST ignore them, except in closed
+  vocabularies (§2.4).
 - **Vendor extensions** are `x-<vendor>-<word>` fields or values, e.g.
-  `x-acme-billing`. Hosts MUST ignore unknown `x-` entries.
+  `x-acme-billing`. Hosts MUST ignore unknown `x-` entries except in closed
+  vocabularies (§2.4).
 
 New core identifiers are added only by this spec. Runtime ids are listed in
 [`docs/runtimes/README.md`](docs/runtimes/README.md); anyone may register one
@@ -82,7 +88,14 @@ by adding a profile document there.
 
 ### 2.4 Forward compatibility (normative)
 
-- Unknown **fields** anywhere in the manifest MUST be ignored.
+- Unknown **fields** MUST be ignored except for the closed permission-key and
+  lifecycle-hook vocabularies below.
+- `targets[].lifecycle` is a closed vocabulary: unknown hook keys MUST cause
+  refusal, including `x-` and `<runtime>:` hook names. In 0.5 the allowed keys
+  are `install`, `upgrade`, `uninstall`, `health`, `enable`, and `disable`;
+  only `install` and `uninstall` are required. Hook keys name executable
+  lifecycle actions, not opaque metadata. This exception preserves the
+  reference validator and schema's existing refusal behavior.
 - Unknown **component types** under `provides` and unknown keys under
   `component_map` MUST be ignored (the extension still installs; the host just
   cannot manage that component individually).
@@ -90,8 +103,8 @@ by adding a profile document there.
   `updates.policy`, `release.channel` core ordering, permission keys — MUST
   cause a refusal, because guessing would either over-promise or under-warn.
   All other unknown enum values are ignored.
-- A host MUST NOT refuse a manifest merely because it contains `x-` or
-  `<runtime>:` entries it does not understand.
+- Outside closed vocabularies, a host MUST NOT refuse a manifest merely
+  because it contains `x-` or `<runtime>:` entries it does not understand.
 
 The JSON Schema in `schema/` encodes these rules (`additionalProperties` is
 permissive where this section says "ignore").
@@ -291,9 +304,23 @@ view-scoped HTTP/WebSocket prefix mount; it MUST NOT accept a browser-selected
 upstream URL. The host resolves the service and path from the installed,
 validated manifest. It MUST retain authority over routing, redirects and
 WebSocket upgrades, never follow a redirect to a different origin or outside
-the permitted view subtree. A view at `/desktop/` is confined to that subtree;
-an entry document such as `/desktop/index.html` uses its parent `/desktop/`
-as the asset/WebSocket subtree. `/` grants the referenced service's root.
+the permitted view subtree. Derive that subtree syntactically from the
+validated entry path: a path ending in `/` is its own subtree; otherwise
+use everything through its last `/` (its parent directory). Do not infer
+directory status from a filename extension, upstream response or redirect.
+
+| Entry path | Permitted asset/WebSocket subtree |
+|------------|-----------------------------------|
+| `/` | `/` |
+| `/desktop` | `/` |
+| `/desktop/` | `/desktop/` |
+| `/desktop/index.html` | `/desktop/` |
+
+Thus `/desktop` is an entry document with the service root as its subtree,
+not shorthand for `/desktop/`. Publishers wanting confinement to `/desktop/`
+MUST declare the trailing slash or an entry document beneath it. The entry
+path itself is unchanged; deriving the subtree does not append a slash or
+rewrite the initial upstream request. `/` grants the referenced service's root.
 Packages MUST use relative URLs within that subtree or be prefix-aware;
 hosts need not rewrite application source. Query strings on application
 requests are distinct from manifest paths; hosts MUST remove host credentials
@@ -612,6 +639,10 @@ They are not replacements for install/uninstall and MUST NOT require a
 particular service manager. A host may manage services via `component_map`
 without these hooks; absent hooks do not prevent host-owned activation.
 
+Declaring either hook requires a host whose lifecycle vocabulary supports
+0.5. Older reference validators/schemas reject the whole manifest, even if
+the hook is in a target the host would not select. See §13 for compatibility.
+
 On disable, the host MUST first persist the disabled state, revoke all panel
 capabilities/proxy routes, and close active WebSockets, then stop its managed
 services and invoke the optional disable hook. Hook failure MUST NOT restore
@@ -905,11 +936,26 @@ Adding a runtime = adding a profile document. The core spec does not change.
 
 ## 13. Migration
 
-### v0.4 → v0.5 (additive)
+### v0.4 → v0.5 (new optional fields; activation-hook compatibility boundary)
 
 Add optional `provides.panel_views` (§4.2.1) and optional lifecycle `enable` /
-`disable` (§6.5). Existing manifests without these fields remain valid. Hosts
-that do not support views ignore their declarations and MUST NOT expose them.
+`disable` (§6.5). Existing manifests without these fields remain valid.
+`provides.panel_views` is an additive component: hosts that do not support
+views ignore their declarations and MUST NOT expose them.
+
+Activation hooks require a host upgrade to 0.5 (or an explicit backport of
+the 0.5 lifecycle vocabulary and activation semantics). The pre-0.5 reference
+validator and schema accept only `install`, `upgrade`, `uninstall`, and
+`health` in `targets[].lifecycle`; they reject the entire manifest if any
+target declares `enable` or `disable`. They do not silently ignore these
+hooks. Changing `spec_version` alone does not bypass that closed vocabulary.
+Publishers needing older-host compatibility MUST omit activation hooks from
+that manifest and use existing install/uninstall or host-owned component
+management; a panel-only declaration without the new hooks can still be
+ignored by older hosts. Hosts MUST NOT strip hooks from a signed manifest
+to make it validate. Vendoring only the panel helper does not upgrade the
+host's whole-manifest lifecycle validator or activation implementation.
+
 Unknown capability strings are retained but not interpreted. The reference
 package and new publisher skeletons use 0.5; the signed 0.4 sample-memory
 fixture remains unchanged, and the separate unsigned panel-view example

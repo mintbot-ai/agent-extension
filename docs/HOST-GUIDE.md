@@ -72,6 +72,13 @@ Conformance: `pytest conformance/test_core.py` with your adapter.
 
 ## Optional panel views (AXP 0.5)
 
+Upgrade whole-manifest validation and activation handling to 0.5 before
+accepting manifests with `lifecycle.enable` / `lifecycle.disable`. Pre-0.5
+reference validators and schemas reject these keys in any target; they do
+not ignore them. The lifecycle object remains closed (§2.4). Vendoring only
+`axp/panel_views.py` is insufficient. Without the new hooks, older hosts can
+ignore the panel component and install the rest, but MUST NOT expose views.
+
 Panel support is a host feature, not a new runtime or an iframe URL supplied
 by an extension. Validate the whole manifest before installation; hosts which
 need to re-check persisted declarations can also call:
@@ -122,7 +129,11 @@ on a host that cannot implement the isolation and revocation requirements.
    on the host API. WebSocket handshakes require the same capability checks;
    `Origin: null` by itself is never authorization.
 6. Fix the upstream origin from the validated service and confine application
-   requests to the view subtree (SPEC §4.2.1). Reject malformed/encoded
+   requests to the view subtree (SPEC §4.2.1): a trailing-slash entry is its
+   own subtree; otherwise take its parent through the last `/`. In particular,
+   `/desktop` derives `/`, while `/desktop/` and `/desktop/index.html` derive
+   `/desktop/`. Do not guess directory status or change the entry path.
+   Reject malformed/encoded
    traversal and absolute URLs before joining paths; do not follow upstream
    redirects to a new origin or outside that subtree. Applications must use
    relative asset/WebSocket URLs or explicitly support prefix mounting.

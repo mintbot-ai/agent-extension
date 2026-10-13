@@ -2,6 +2,14 @@
 
 ## unreleased — draft 0.5
 
+- Correct the forward-compatibility promise: lifecycle keys are a closed
+  vocabulary, including namespaced keys. Pre-0.5 reference validators/schemas
+  reject activation hooks; declaring them requires a 0.5 host upgrade, not
+  just the panel helper. Add a compatibility regression without changing
+  validation behavior.
+- Clarify panel subtree derivation: a non-trailing-slash entry uses its parent
+  directory, so `/desktop` grants `/`, unlike `/desktop/`.
+
 - Add optional `provides.panel_views`: unique safe names, title/icon hints,
   service references, strict literal-loopback HTTP origins, unencoded safe
   entry paths and forward-compatible string capabilities (`pin`, `fullscreen`).

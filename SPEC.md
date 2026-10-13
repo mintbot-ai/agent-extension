@@ -205,6 +205,7 @@ concrete artifact on a given runtime lives in that runtime's `targets[]` entry
   "model_providers": [ { "name": "acme-llm", "summary": "…" } ],
   "hooks":       [ { "name": "pre-reply", "event": "pre_reply", "summary": "…" } ],
   "cron":        [ { "name": "nightly-compaction", "schedule": "0 4 * * *", "summary": "…" } ],
+  "settings_section": { "title": "Graph memory", "summary": "Remembers people, projects and decisions across conversations." },
   "config":      { "schema_ref": "schemas/config.schema.json", "secrets": ["FALKOR_PASSWORD"] }
 }
 ```
@@ -217,6 +218,7 @@ Core component types and their required fields:
 | `tools`           | `name`              | runtime-native tools; `input_schema_ref` (JSON Schema)        |
 | `services`        | `name`, `kind`      | `kind` ∈ `daemon \| oneshot \| sidecar`; `endpoint`; `auth` (endpoint access, below) |
 | `panel_views`     | `name`, `title`, `service`, `path`, `capabilities` | isolated host UI; optional `icon`; see §4.2.1 |
+| `settings_section` | `title`, `summary` | one object, not a list: the extension's own section in the host's settings; optional `icon`, `views`, `localized`; see §4.2.2 |
 | `memory`          | `name`, `kind`      | `kind` ∈ `graph \| vector \| kv \| relational`                |
 | `skills`          | `name`              | instruction packs; `path`                                     |
 | `prompts`         | `name`              | system-prompt / persona fragments; `fragment_ref` (was `persona` in v0.2) |
@@ -366,6 +368,68 @@ raising `PanelViewError`. It lives in the standalone stdlib-only
 `ManifestError`. Hosts MUST implement the transport/isolation/lifecycle rules;
 passing validation alone does not make a proxy secure. Schema-only validation
 cannot check cross-component references or their endpoint restrictions.
+
+### 4.2.2 `settings_section` — optional section in the host's settings
+
+An extension MAY ask for one section of its own in the host's settings: the
+place where the user reads, in plain words, what the extension does for them,
+switches it on or off and opens its views. The host renders the section and
+owns its controls; the extension supplies only text and references, never
+markup, scripts or URLs. The component is optional: hosts without support
+ignore it, and the extension stays manageable wherever the host lists its
+extensions.
+
+```json
+"settings_section": {
+  "title": "Agent desktop",
+  "summary": "A shared desktop for you and your agent, right in your browser.",
+  "icon": "monitor",
+  "views": ["desktop"],
+  "localized": {
+    "et": { "title": "Agendi töölaud", "summary": "Jagatud töölaud sulle ja sinu agendile otse brauseris." }
+  }
+}
+```
+
+- `title` (REQUIRED, at most 60 characters) names the section. `summary`
+  (REQUIRED, at most 400 characters) says what the extension does for the
+  user, not how it works: permissions, ports and install steps belong to the
+  consent card (§4.4). Both are plain text without control characters; hosts
+  render them as text, never markup.
+- `icon` is optional: a host-interpreted hint, as for a panel view.
+- `views` is optional: names of panel views (§4.2.1) the host offers from the
+  section, each naming a declared view at most once.
+- `localized` is optional: an object keyed by BCP 47 language tag (`et`,
+  `pt-BR`), each value carrying a `title` and/or a `summary` under the same
+  rules. A host picks the closest match for the user's language and falls
+  back to the base strings. A host that curates an extension MAY show its own
+  translations instead.
+- Unknown fields are retained, not interpreted (§2.4).
+
+**Host-owned controls.** A supporting host binds the section to the
+extension's lifecycle:
+
+- An on/off switch. Off disables the extension (§6.5): its components stop
+  and its data stays. On enables it again. The switch never uninstalls and
+  never widens permissions.
+- A host MAY show the section of an extension it offers but has not installed
+  yet. Switching that on starts the normal installation: the user sees and
+  approves the consent card (§4.4) before anything is downloaded or run.
+  Showing a section MUST NOT download, install or start anything.
+- Entries that open the listed views, with their declared presentation
+  capabilities.
+
+A host MAY give each section its own entry or route in its settings
+navigation, or group sections under one heading for extensions.
+Configuration an extension needs beyond on/off belongs in a panel view under
+that view's isolation rules; a settings section grants no access to the host
+UI.
+
+The reference `validate_settings_section(provides)` checks the declaration
+and its view references without I/O, returning a detached copy (`None` when
+absent) or raising `SettingsSectionError`. Like `axp/panel_views.py`, its
+module `axp/settings_section.py` is standalone and stdlib-only, so a host can
+vendor it; whole-manifest validation translates its errors to `ManifestError`.
 
 ### 4.3 `requires`
 
@@ -938,10 +1002,14 @@ Adding a runtime = adding a profile document. The core spec does not change.
 
 ### v0.4 → v0.5 (new optional fields; activation-hook compatibility boundary)
 
-Add optional `provides.panel_views` (§4.2.1) and optional lifecycle `enable` /
+Add optional `provides.panel_views` (§4.2.1), `provides.settings_section`
+(§4.2.2) and optional lifecycle `enable` /
 `disable` (§6.5). Existing manifests without these fields remain valid.
 `provides.panel_views` is an additive component: hosts that do not support
 views ignore their declarations and MUST NOT expose them.
+`provides.settings_section` is additive too: hosts that do not render
+settings sections ignore it, and pre-0.5 validators skip it as an unknown
+component type (§2.4).
 
 Activation hooks require a host upgrade to 0.5 (or an explicit backport of
 the 0.5 lifecycle vocabulary and activation semantics). The pre-0.5 reference

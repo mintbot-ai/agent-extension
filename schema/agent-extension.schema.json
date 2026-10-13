@@ -109,6 +109,30 @@
             }
           }
         },
+        "settings_section": {
+          "type": "object",
+          "description": "Optional section of the extension's own in the host's settings (SPEC 4.2.2). Semantic validation must additionally reject control characters and check that views name declared panel_views.",
+          "required": ["title", "summary"],
+          "additionalProperties": true,
+          "properties": {
+            "title": { "type": "string", "pattern": "\\S", "maxLength": 60 },
+            "summary": { "type": "string", "pattern": "\\S", "maxLength": 400, "description": "What the extension does for the user, in plain words; not how it works." },
+            "icon": { "type": "string", "pattern": "\\S", "description": "Host-interpreted icon hint, not executable markup or a fetched URL." },
+            "views": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$(?![\\s\\S])", "maxLength": 64 }, "description": "Names of provides.panel_views entries the host offers from the section." },
+            "localized": {
+              "type": "object",
+              "propertyNames": { "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$(?![\\s\\S])" },
+              "additionalProperties": {
+                "type": "object",
+                "anyOf": [{ "required": ["title"] }, { "required": ["summary"] }],
+                "properties": {
+                  "title": { "type": "string", "pattern": "\\S", "maxLength": 60 },
+                  "summary": { "type": "string", "pattern": "\\S", "maxLength": 400 }
+                }
+              }
+            }
+          }
+        },
         "memory": {
           "type": "array",
           "items": {

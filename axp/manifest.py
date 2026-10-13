@@ -29,6 +29,7 @@ from typing import Any, Mapping, NoReturn
 
 from . import versions
 from .panel_views import PanelViewError, validate_panel_views as _validate_panel_views
+from .settings_section import SettingsSectionError, validate_settings_section as _validate_settings_section
 
 AXP_KIND = "agent-extension"
 SUPPORTED_SPEC_MAJORS = (0,)
@@ -285,6 +286,14 @@ def validate_panel_views(provides: dict) -> list[dict]:
         raise ManifestError(str(exc)) from exc
 
 
+def validate_settings_section(provides: dict) -> dict | None:
+    """Compatibility wrapper translating the standalone helper's errors."""
+    try:
+        return _validate_settings_section(provides)
+    except SettingsSectionError as exc:
+        raise ManifestError(str(exc)) from exc
+
+
 def _check_provides(data: dict) -> list[str]:
     """Validate core component types; unknown types are ignored (§2.4).
     Returns the normalized (aliased) list of component types present."""
@@ -320,6 +329,9 @@ def _check_provides(data: dict) -> list[str]:
                 _check_endpoint_auth(item, item_path)
         present.append(key)
     validate_panel_views(block)
+    # One object, not a list: checked after the panel views it may name.
+    if validate_settings_section(block) is not None:
+        present.append("settings_section")
     return present
 
 

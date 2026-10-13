@@ -22,7 +22,16 @@
       "service": "desktop",
       "path": "/desktop/",
       "capabilities": ["pin", "fullscreen"]
-    }]
+    }],
+    "settings_section": {
+      "title": "Desktop",
+      "summary": "A shared desktop for you and your agent, right in your browser.",
+      "icon": "monitor",
+      "views": ["desktop"],
+      "localized": {
+        "et": {"title": "Töölaud", "summary": "Jagatud töölaud sulle ja sinu agendile otse brauseris."}
+      }
+    }
   },
   "permissions": {
     "network_ingress": ["127.0.0.1:6080/tcp"],

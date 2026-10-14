@@ -1081,4 +1081,6 @@ manifest origin's registrable domain (and flagged as derived); `persona` →
    scripts, or leave to runtime profiles?
 5. **Registry/catalogue** discovery (`axp://<publisher>/<name>` → well-known
    lookup) — useful, but must stay optional so the decentralised path remains
-   the default.
+   the default. A public catalogue exists at <https://axp.cat>: it lists only
+   manifests that pass §2–§8 (validator, signature, publisher binding) and is
+   a convenience for discovery, never a requirement for installation.

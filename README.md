@@ -11,6 +11,14 @@ description layer every runtime can be generated from or mapped onto — the
 role OCI image manifests play across container runtimes, or OpenAPI across
 HTTP servers. Nothing in the core names a vendor, a product, or a registry.
 
+**Public home and catalog: [axp.cat](https://axp.cat).** An introduction to
+the standard and the open catalog of packages that pass it - every listing
+is a manifest the reference validator accepts, signed, and bound to its
+publisher. Browse at [axp.cat/catalog](https://axp.cat/catalog); list your
+own at [axp.cat/submit](https://axp.cat/submit) (`axpcat check <locator>`
+runs the same gate locally). This repository holds the specification and
+the reference implementation.
+
 ## What AXP gives you
 
 1. **Portable description** — `identity` (publisher-namespaced) / `provides`

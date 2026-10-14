@@ -99,12 +99,15 @@ def parse_scope(entry: str) -> tuple[str | None, str, str]:
 
 def _egress_covers(granted: str, wanted: str) -> bool:
     """``host[:port]`` coverage: a bare host covers every port of that host;
-    ``*.example.com`` covers any host under ``example.com``."""
+    ``*.example.com`` covers any host under ``example.com``; ``*`` covers
+    every host (``*:443`` every host on that port)."""
     g_host, _, g_port = granted.rpartition(":") if ":" in granted else (granted, "", "")
     w_host, _, w_port = wanted.rpartition(":") if ":" in wanted else (wanted, "", "")
     g_host, w_host = g_host.lower(), w_host.lower()
     if g_port and g_port != w_port:
         return False
+    if g_host == "*":
+        return True
     if g_host.startswith("*."):
         return w_host.endswith(g_host[1:]) and w_host != g_host[2:] or w_host == g_host
     return g_host == w_host

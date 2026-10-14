@@ -291,6 +291,13 @@ exactly this; see `docs/runtimes/posix.md`):
   ports either: services bound to a wildcard address (`0.0.0.0` / `::`) stay
   reachable through the proxy's address, so bind local control services to
   `127.0.0.1` explicitly.
+- A port-less `*` in `network_egress` (any host, §4.4) leaves nothing to
+  filter by name. Do not run a proxy that admits everything and call it
+  containment: leave the network half off for that extension, keep the
+  filesystem half, and record `network: false` with a note, so the consent
+  card and the install record say what is true. `*:443` still goes through
+  the proxy (any host, that port only), and the proxy keeps refusing names
+  that resolve to internal ranges.
 - Record the tier you actually applied and every downgrade reason in the
   install record and on the consent card. Never report `enforced` unless
   runtime code is contained too.

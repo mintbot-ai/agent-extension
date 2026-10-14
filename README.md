@@ -122,7 +122,9 @@ running in production on the mintbot host:
   unit reaches the network only through `HTTPS_PROXY`, and the proxy admits
   `CONNECT host:port` solely for the declared `network_egress` entries
   (wildcards included) and the publisher's own hosts. DNS, raw sockets and
-  services bound to `127.0.0.1` are unreachable from the hook;
+  services bound to `127.0.0.1` are unreachable from the hook. A port-less
+  `*` (egress to any host) is the one declaration no proxy can narrow: the
+  network half is then off for that extension and recorded as such;
 - the tier actually applied (`advisory`, or `declared` when systemd is
   missing or `root: true` turns the filesystem half off) and every downgrade
   reason are recorded in the install record and shown on the consent card.

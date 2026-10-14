@@ -67,6 +67,9 @@ def test_permissions_widened_semantics():
     assert u.permissions_widened(old, {**old, "root": True}) == ["root"]
     assert u.permissions_widened({"root": True}, {"root": False}) == []
     assert u.permissions_widened(None, {"network_egress": ["a.test"]}) == ["network_egress"]
+    # The open internet is the widest grant: reaching it widens, holding it covers all.
+    assert u.permissions_widened(old, {**old, "network_egress": ["*"]}) == ["network_egress"]
+    assert u.permissions_widened({**old, "network_egress": ["*"]}, old) == []
 
 
 def test_parse_scope():
@@ -84,6 +87,11 @@ def test_coverage_helpers_edge_cases():
     assert u._egress_covers("*.hf.test:443", "x.hf.test:443")
     assert not u._egress_covers("*.hf.test:443", "x.hf.test")
     assert not u._egress_covers("*.hf.test", "notahf.test")
+    # `*` covers every host, with its own port rule; nothing short of `*` covers `*`.
+    assert u._egress_covers("*", "api.test:443") and u._egress_covers("*", "*.hf.test") and u._egress_covers("*", "*")
+    assert u._egress_covers("*:443", "api.test:443") and u._egress_covers("*:443", "*:443")
+    assert not u._egress_covers("*:443", "api.test") and not u._egress_covers("*:443", "*")
+    assert not u._egress_covers("*.hf.test", "*") and not u._egress_covers("api.test", "*")
     # Ingress: an address-bound grant covers only that address.
     assert u._ingress_covers("6379/tcp", "127.0.0.1:6379/tcp")
     assert not u._ingress_covers("127.0.0.1:6379/tcp", "6379/tcp")

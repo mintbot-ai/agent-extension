@@ -28,6 +28,8 @@ def test_v02_publisher_derived_from_origin(example):
     (lambda m: m["identity"].__setitem__("version", "1.0"), "identity.version"),
     (lambda m: m["permissions"].__setitem__("camera", True), "unknown keys"),
     (lambda m: m["permissions"].__setitem__("network_egress", ["https://x"]), "network_egress"),
+    (lambda m: m["permissions"].__setitem__("network_egress", ["*x"]), "network_egress"),
+    (lambda m: m["permissions"].__setitem__("network_egress", ["*."]), "network_egress"),
     (lambda m: m["release"].__setitem__("channel", "Stable"), "release.channel"),
     (lambda m: m["updates"]["source"].__setitem__("kind", "torrent"), "updates.source.kind"),
     (lambda m: m["targets"][0]["lifecycle"].pop("uninstall"), "lifecycle.uninstall"),
@@ -40,6 +42,13 @@ def test_rejections(example, mutate, fragment):
     mutate(example)
     with pytest.raises(manifest.ManifestError, match=fragment):
         manifest.validate(example)
+
+
+def test_egress_accepts_any_host(example):
+    """A bare `*` (or `*:443`) is egress to any host; a stray character after
+    it is not a wider wildcard but a malformed entry."""
+    example["permissions"]["network_egress"] = ["*", "*:443", "*.cdn.example:443", "api.example"]
+    assert manifest.validate(example)["name"] == "sample-memory"
 
 
 def test_forward_compat_ignores_unknown_fields_and_types(example):

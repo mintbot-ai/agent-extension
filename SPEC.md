@@ -464,7 +464,7 @@ Because runtimes differ in *how much* they can sandbox, each target carries an
 
 ```jsonc
 "permissions": {
-  "network_egress":  ["api.example.com:443"],      // host[:port]; "*.example.com" wildcard allowed
+  "network_egress":  ["api.example.com:443"],      // host[:port]; "*.example.com" wildcard; "*" = any host
   "network_ingress": ["127.0.0.1:6379/tcp"],       // listeners it opens: [addr:]port/proto
   "filesystem":      ["state:rw", "config:r"],     // logical scopes, not raw paths
   "secrets":         ["FALKOR_PASSWORD"],          // secret names it needs the host to hand over
@@ -476,6 +476,18 @@ Because runtimes differ in *how much* they can sandbox, each target carries an
 `reason` MAY instead be an object keyed by permission (`{ "root": "…",
 "network_egress": "…" }`). An absent `permissions` block is an *empty*
 declaration, not a blank cheque.
+
+**Egress entries** are `host[:port]`. `*.example.com` covers every host under
+`example.com` (not the apex). A bare `*` (or `*:443`) declares egress to *any*
+host (on that port): the open internet, for an extension that is a browser or
+a workstation rather than a client of a few services. It is a permission like
+any other — shown for consent as the widest grant there is, and widening to it
+needs fresh consent (§7.6) — but a host that filters egress by name has
+nothing to filter against a port-less `*`. Such a host MUST NOT run a proxy
+that admits everything and report it as containment: it leaves that
+extension's network open, keeps whatever else it enforces, and records the
+network half as not enforced (`docs/HOST-GUIDE.md`, "Runtime containment").
+`*:443` can still be filtered by port.
 
 **Filesystem scopes** are logical, so the same manifest means the same thing
 on every host. Core scopes:
@@ -822,8 +834,9 @@ new egress hosts or ports, new listeners, new or broader filesystem scopes
 (`state:r` → `state:rw`), new secrets, or `root` — without a fresh consent,
 not even on a user-triggered "update now". Narrowing never needs consent.
 Coverage rules: a bare `host` covers every port of that host; `*.example.com`
-covers every host under it (not the apex); an ingress entry without an
-address covers every address; `rw` covers `r`. The reference implementation
+covers every host under it (not the apex); `*` covers every host (`*:443`
+every host on that port); an ingress entry without an address covers every
+address; `rw` covers `r`. The reference implementation
 (`axp.updates.permissions_widened`) is normative for these rules.
 
 ## 8. Signing & trust

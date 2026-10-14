@@ -2,6 +2,13 @@
 
 ## unreleased — draft 0.5
 
+- `permissions.network_egress` accepts `*` and `*:port`: egress to any host
+  (on that port), the open internet, for extensions that are a browser or a
+  workstation. Consent shows it as the widest grant; the ratchet treats a
+  change to it as widening (`*` covers every host in `permissions_widened`).
+  A host that filters egress by name cannot narrow a port-less `*`: it leaves
+  the network half off for that extension and records it, instead of running
+  a proxy that admits everything and calling it containment.
 - Correct the forward-compatibility promise: lifecycle keys are a closed
   vocabulary, including namespaced keys. Pre-0.5 reference validators/schemas
   reject activation hooks; declaring them requires a 0.5 host upgrade, not

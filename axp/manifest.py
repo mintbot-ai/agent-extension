@@ -87,7 +87,8 @@ GITHUB_REPO_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 RUNTIME_ID_RE = re.compile(r"^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$")
 PLATFORM_RE = re.compile(r"^[a-z0-9]+/[a-z0-9]+$")
 EXT_ID_RE = re.compile(r"^[a-z0-9.-]+/[a-z0-9][a-z0-9_-]*$")
-EGRESS_RE = re.compile(r"^(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$")
+# host[:port]; `*.example.com` covers the hosts under it; a bare `*` is any host.
+EGRESS_RE = re.compile(r"^(\*|(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]{1,5})?$")
 INGRESS_RE = re.compile(r"^([A-Za-z0-9.:\[\]-]+:)?[0-9]{1,5}/(tcp|udp)$")
 FS_SCOPE_RE = re.compile(r"^([a-z][a-z0-9_-]*:)?[a-z][a-z0-9_-]*:(r|rw)$")
 VERSION_RANGE_RE = re.compile(r"^(\s*(>=|<=|>|<|=|\^|~)?[0-9]+(\.[0-9A-Za-z-]+)*\s*)+$")
@@ -365,7 +366,7 @@ def _check_permissions(data: dict) -> None:
     unknown = sorted(set(block) - set(PERMISSION_KEYS))
     if unknown:
         _fail("permissions", f"has unknown keys {unknown} (known: {list(PERMISSION_KEYS)})")
-    _string_list(block, "network_egress", "permissions.", pattern=EGRESS_RE, expect="host[:port]")
+    _string_list(block, "network_egress", "permissions.", pattern=EGRESS_RE, expect="host[:port], *.suffix[:port] or *[:port]")
     _string_list(block, "network_ingress", "permissions.", pattern=INGRESS_RE, expect="[addr:]port/tcp|udp")
     _string_list(block, "filesystem", "permissions.", pattern=FS_SCOPE_RE,
                  expect="<scope>:r|rw or <runtime>:<scope>:r|rw")

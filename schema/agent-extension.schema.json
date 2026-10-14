@@ -208,7 +208,7 @@
       "additionalProperties": false,
       "description": "Closed: an unknown permission key is a refusal, not an ignore (SPEC §2.4).",
       "properties": {
-        "network_egress": { "type": "array", "items": { "type": "string", "pattern": "^(\\*\\.)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$" } },
+        "network_egress": { "type": "array", "items": { "type": "string", "pattern": "^(\\*|(\\*\\.)?[A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]{1,5})?$" }, "description": "host[:port]; *.example.com covers hosts under it; * (or *:443) is any host" },
         "network_ingress": { "type": "array", "items": { "type": "string", "pattern": "^([A-Za-z0-9.:\\[\\]-]+:)?[0-9]{1,5}/(tcp|udp)$" } },
         "filesystem": { "type": "array", "items": { "type": "string", "pattern": "^([a-z][a-z0-9_-]*:)?[a-z][a-z0-9_-]*:(r|rw)$" }, "description": "<scope>:<mode> or <runtime>:<scope>:<mode>" },
         "secrets": { "type": "array", "items": { "type": "string" } },

@@ -512,7 +512,8 @@ def _check_commerce(data: dict, publisher: str) -> dict | None:
     _https_url(block, "refresh_url", "commerce.")
     issuers = _string_list(block, "issuers", "commerce.", pattern=PUBLISHER_RE,
                            expect="a lowercase DNS name such as ext.example.com")
-    _non_negative_int(block, "grace_days", "commerce.")
+    if "grace_days" in block:
+        _non_negative_int(block, "grace_days", "commerce.", required=True)
     payment = _string_list(block, "payment", "commerce.", pattern=NAME_RE,
                            expect="a rail name such as x402") or []
     return {"entitlement": mode, "plans": plan_ids, "issuers": issuers or [publisher],

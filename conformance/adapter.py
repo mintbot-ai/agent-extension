@@ -32,6 +32,11 @@ class Adapter(Protocol):
         """OPTIONAL (section 8.5): the same decision with the publisher key
         directory consulted. Hosts that do not implement it skip those cases."""
 
+    def parse_key_directory(self, document: dict, publisher: str, name: str | None,
+                            role: str) -> list[str]:
+        """OPTIONAL (8.5/14.3): filter a raw directory by scope and role.
+        Malformed security constraints must never authorize their entry."""
+
     def verify_entitlement(self, manifest: dict, entitlement: dict, holder: str,
                            key_directory: dict, now: datetime) -> tuple[bool, str]:
         """OPTIONAL (section 14, commerce-capable hosts): the entitlement check
@@ -69,6 +74,11 @@ class ReferenceAdapter:
         decision = self._pins.evaluate(ext_id, manifest, directory_keys=directory_keys)
         return decision.accepted, decision.action
 
+    def parse_key_directory(self, document: dict, publisher: str, name: str | None,
+                            role: str) -> list[str]:
+        from axp.signing import parse_key_directory
+        return parse_key_directory(document, publisher=publisher, name=name, role=role)
+
     def verify_entitlement(self, manifest: dict, entitlement: dict, holder: str,
                            key_directory: dict, now: datetime) -> tuple[bool, str]:
         from axp import entitlements
@@ -87,6 +97,7 @@ class ReferenceAdapter:
         verdict = entitlements.verify_entitlement(
             entitlement, extension=summary["ext_id"], holder=holder, issuer_keys=issuer_keys,
             issuers=commerce["issuers"], now=now,
+            grace_days=(manifest.get("commerce") or {}).get("grace_days", entitlements.DEFAULT_GRACE_DAYS),
         )
         return verdict.valid, verdict.status
 

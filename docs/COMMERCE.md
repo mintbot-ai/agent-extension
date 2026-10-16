@@ -20,6 +20,12 @@ artifact server or the extension itself ever looks at.
  host      ──signs──▶ presentation {audience, entitlement}     ──▶ artifact server / issuer verify
 ```
 
+Grace policy for `axp entitlement verify` and `axp entitlement inspect` is
+explicit `--grace-days` first, otherwise `commerce.grace_days` from `--manifest`,
+otherwise 7 days. Zero disables grace; negative overrides are usage errors.
+Library callers must pass the resolved value themselves; the pure verification
+functions do not read manifests.
+
 Three keys, three roles:
 
 | key | lives | signs | listed in your key directory as |

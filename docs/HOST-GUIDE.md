@@ -350,6 +350,16 @@ components it launches itself:
 
 ## Commerce — entitlements and gated artifacts (optional, SPEC §14)
 
+Resolve grace as an explicit local override, else the validated manifest's
+`commerce.grace_days`, else 7. Preserve zero; reject negative policy values.
+`validate()` keeps its existing commerce-summary shape, so read grace from
+the validated input manifest as below. The CLI verify/inspect commands do
+this automatically with `--manifest`; `--grace-days` overrides it.
+
+Key-directory roles protect only role-aware readers. Upgrade every reader
+that uses a directory for manifest trust before adding entitlement-only
+online keys there; an older reader may silently treat them as manifest keys.
+
 A host that installs sold extensions adds one key, one store and four checks
 on top of Trusted. Nothing here touches money: the issuer collected it and
 signed an *entitlement*; the host verifies and presents it.

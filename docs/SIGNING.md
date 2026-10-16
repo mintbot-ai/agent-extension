@@ -160,8 +160,17 @@ roles existed keeps its meaning. A key that signs *entitlements* (the proof
 of purchase a sold extension needs, [`COMMERCE.md`](COMMERCE.md)) is listed
 with `"roles": ["entitlement"]`, by `axp keydir --entitlement-key`. That key
 lives on the server that sells and signs at every purchase; listed without
-the `manifest` role it can never move a host's pin, however it is stolen.
+the `manifest` role it cannot authorize manifest trust in a role-aware
+directory check. Older readers may ignore roles and treat it as a manifest
+key: upgrade those readers before listing online issuing keys in their trust
+directory. Role separation does not replace consulting the directory.
 Keep the two on separate keys.
+
+Only absent `extensions` and `roles` get their defaults (all extensions and
+manifest-only, respectively). Explicit null, wrong types or malformed array
+items exclude the entire entry; one matching item cannot rescue an invalid
+constraint. Scope syntax follows the key-directory schema. This also applies
+to lookups with no name filter; use a concrete extension id for authorization.
 
 ```bash
 axp keydir --publisher ext.example.com \

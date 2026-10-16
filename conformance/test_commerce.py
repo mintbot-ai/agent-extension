@@ -64,6 +64,25 @@ def test_valid_entitlement_is_accepted(commerce, example, issuing_key, host_key,
     assert commerce.verify_entitlement(example, perpetual, host_key[1], directory, NOW + timedelta(days=3650))[0]
 
 
+@pytest.mark.parametrize("grace,elapsed,expected", [(0, 1, (False, "expired")),
+                                                   (14, 10, (True, "grace"))])
+def test_manifest_grace_policy(commerce, example, issuing_key, host_key, directory, grace, elapsed, expected):
+    example["commerce"]["grace_days"] = grace
+    doc = _entitlement(issuing_key, host_key, example, valid_until=NOW + timedelta(days=30))
+    assert commerce.verify_entitlement(example, doc, host_key[1], directory,
+                                      NOW + timedelta(days=30 + elapsed)) == expected
+
+
+@pytest.mark.parametrize("field,value", [("extensions", None), ("extensions", "sample-memory"),
+    ("extensions", {}), ("extensions", ["sample-memory", None]),
+    ("extensions", ["sample-memory", "Bad"]), ("roles", None),
+    ("roles", ["entitlement", None])])
+def test_malformed_issuer_constraints_refuse(commerce, example, issuing_key, host_key, directory, field, value):
+    directory["keys"][1][field] = value
+    doc = _entitlement(issuing_key, host_key, example)
+    assert not commerce.verify_entitlement(example, doc, host_key[1], directory, NOW)[0]
+
+
 def test_grace_then_expiry(commerce, example, issuing_key, host_key, directory):
     doc = _entitlement(issuing_key, host_key, example, valid_until=NOW + timedelta(days=30))
     accepted, status = commerce.verify_entitlement(example, doc, host_key[1], directory, NOW + timedelta(days=33))

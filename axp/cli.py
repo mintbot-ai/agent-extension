@@ -440,9 +440,9 @@ def _issuer_keys(args: argparse.Namespace, *, issuer: str, extension: str) -> li
         raise SystemExit(f"axp: key directory {source}: {exc}")
 
 
-def _commerce_context(args: argparse.Namespace, document: dict) -> tuple[str, list[str] | None]:
-    """``(extension, issuers)`` from ``--manifest`` when given (the manifest's
-    id and commerce.issuers), else from ``--extension`` / the document."""
+def _commerce_context(args: argparse.Namespace, document: dict) -> tuple[str, list[str] | None, int]:
+    """Resolve extension, issuers and grace (CLI override > manifest > default)."""
+    grace = args.grace_days
     if args.manifest:
         data = _load(args.manifest)
         try:
@@ -450,8 +450,11 @@ def _commerce_context(args: argparse.Namespace, document: dict) -> tuple[str, li
         except manifest.ManifestError as exc:
             raise SystemExit(f"axp: manifest: {exc}")
         commerce = summary.get("commerce") or {}
-        return summary["ext_id"], commerce.get("issuers") or [summary["publisher"]]
-    return args.extension or str(document.get("extension") or ""), None
+        if grace is None:
+            grace = (data.get("commerce") or {}).get("grace_days", entitlements.DEFAULT_GRACE_DAYS)
+        return summary["ext_id"], commerce.get("issuers") or [summary["publisher"]], grace
+    return (args.extension or str(document.get("extension") or ""), None,
+            entitlements.DEFAULT_GRACE_DAYS if grace is None else grace)
 
 
 def _report(verdict: entitlements.Verdict, extra: dict | None = None) -> int:
@@ -471,7 +474,7 @@ def _cmd_entitlement_verify(args: argparse.Namespace) -> int:
     except entitlements.EntitlementError as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
-    extension, issuers = _commerce_context(args, document)
+    extension, issuers, grace_days = _commerce_context(args, document)
     issuer = str(document["issuer"])
     if issuers is not None and issuer not in issuers:
         # Refused before any fetch: never ask a stranger's directory to vouch.
@@ -480,7 +483,7 @@ def _cmd_entitlement_verify(args: argparse.Namespace) -> int:
     verdict = entitlements.verify_entitlement(
         document, extension=extension, holder=args.holder,
         issuer_keys=_issuer_keys(args, issuer=issuer, extension=extension), issuers=issuers,
-        now=_parse_at(args.at), grace_days=args.grace_days,
+        now=_parse_at(args.at), grace_days=grace_days,
     )
     extra = {}
     if args.manifest and verdict.valid:
@@ -517,7 +520,7 @@ def _cmd_entitlement_inspect(args: argparse.Namespace) -> int:
         presentation = entitlements.verify_presentation(token, audience=args.audience, now=now)
     except entitlements.EntitlementError as exc:
         return _report(entitlements.Verdict(False, "malformed", f"presentation: {exc}"))
-    extension, issuers = _commerce_context(args, presentation)
+    extension, issuers, grace_days = _commerce_context(args, presentation)
     extra = {"holder": presentation["holder"], "presented_for": presentation["extension"]}
     entitlement = presentation.get("entitlement")
     if entitlement is None:
@@ -529,9 +532,16 @@ def _cmd_entitlement_inspect(args: argparse.Namespace) -> int:
     verdict = entitlements.verify_presented_entitlement(
         presentation, audience=args.audience, extension=extension,
         issuer_keys=_issuer_keys(args, issuer=issuer, extension=extension), issuers=issuers,
-        now=now, grace_days=args.grace_days,
+        now=now, grace_days=grace_days,
     )
     return _report(verdict, extra)
+
+
+def _non_negative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return number
 
 
 def _add_trust_options(p: argparse.ArgumentParser) -> None:
@@ -541,10 +551,11 @@ def _add_trust_options(p: argparse.ArgumentParser) -> None:
                                         "(default: the issuer's own well-known directory)")
     group.add_argument("--issuer-key", action="append", metavar="ed25519:...",
                        help="trust exactly this issuing key (repeatable; skips the directory)")
-    p.add_argument("--manifest", help="the extension's manifest: supplies the id and commerce.issuers")
+    p.add_argument("--manifest", help="the extension's manifest: supplies id, issuers and grace policy")
     p.add_argument("--extension", help="<publisher>/<name> when no --manifest is given (default: the document's)")
-    p.add_argument("--grace-days", type=int, default=entitlements.DEFAULT_GRACE_DAYS,
-                   help=f"days past valid_until still accepted as 'grace' (default {entitlements.DEFAULT_GRACE_DAYS})")
+    p.add_argument("--grace-days", type=_non_negative_int, default=None,
+                   help="override days past valid_until accepted as grace "
+                        f"(otherwise commerce.grace_days, then {entitlements.DEFAULT_GRACE_DAYS})")
     p.add_argument("--at", metavar="ISO", help="evaluate at this time instead of now")
 
 

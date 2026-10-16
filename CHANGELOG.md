@@ -2,6 +2,16 @@
 
 ## unreleased — draft 0.5
 
+- Fail closed on malformed key-directory extension scopes and roles, including
+  explicit null and mixed valid/invalid arrays. Preserve absent-field defaults
+  and schema-compatible future role strings. Add schema parity and raw-directory
+  conformance cases; clarify the limits of roles on pre-role hosts.
+- Resolve CLI entitlement grace as explicit `--grace-days` > manifest
+  `commerce.grace_days` > 7 for both verify and inspect; reject negative CLI
+  overrides and explicit null manifest grace. Conformance now exercises zero
+  and extended manifest grace; the public commerce-summary API is unchanged.
+
+
 - Commerce (SPEC 14, `docs/COMMERCE.md`): an extension may be sold without
   AXP touching payment. The optional `commerce` block declares whether an
   *entitlement* is `required` or `optional`, the plans for sale (one-time,

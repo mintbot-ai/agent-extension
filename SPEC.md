@@ -107,6 +107,14 @@ by adding a profile document there.
 - Outside closed vocabularies, a host MUST NOT refuse a manifest merely
   because it contains `x-` or `<runtime>:` entries it does not understand.
 
+Known security constraints MUST be validated before they authorize anything.
+A malformed constraint is not an absent constraint: hosts MUST fail closed
+(refuse the affected entry or document), never fall back to broader authority.
+An additive field is not automatically security-compatible: a new restriction
+that an older host ignores cannot protect that host. Protocol additions MUST
+state this limitation and MUST NOT claim that ignoring a restriction preserves
+its trust boundary (key roles are one such case, §13 and §14.3).
+
 The JSON Schema in `schema/` encodes these rules (`additionalProperties` is
 permissive where this section says "ignore").
 
@@ -970,6 +978,17 @@ without `roles`, or one listing it. Keys listed only with the `entitlement`
 role (§14.3) are not manifest keys: they never satisfy a rotation, a
 recovery or a first-use check, however genuinely the publisher lists them.
 
+Only an **absent** `extensions` field means unrestricted scope. When present,
+it MUST be an array whose every item is a string matching the key-directory
+schema's extension-name/id grammar; null, other types and malformed items
+MUST exclude the entry from authorization (or cause directory refusal). This
+validation applies even when a caller requests keys without a name filter.
+An empty scope authorizes no extension. Similarly, only an **absent** `roles`
+field defaults to `["manifest"]`: a present value MUST be an array of strings,
+and the requested role MUST be explicitly included. Malformed roles MUST NOT
+fall back to manifest authority. Unknown role strings grant no known role;
+a well-formed list can contain both known and future roles.
+
 A Trusted host SHOULD fetch it (HTTPS, same SSRF rules as any fetch) whenever
 a manifest's key differs from the pinned key, and then:
 
@@ -1092,12 +1111,16 @@ settings sections ignore it, and pre-0.5 validators skip it as an unknown
 component type (§2.4). *Direct access* (§4.2) is a host option that no
 manifest field controls: existing manifests and hosts are unaffected.
 
-Commerce (§14) is additive: the optional top-level `commerce` block
+Commerce (§14) adds optional fields: the top-level `commerce` block
 (including `commerce.payment`, whose rails a host may all decline),
-`targets[].delivery.auth`, the key directory's `roles` and the
-`AXP_ENTITLEMENT_FILE` variable are all ignored by hosts that predate them,
-and a key directory entry without `roles` means exactly what it meant
-before. The one consequence a publisher must know: a pre-commerce host
+`targets[].delivery.auth` and `AXP_ENTITLEMENT_FILE` are not interpreted by
+hosts that predate them. Entries without `roles` retain manifest-only meaning
+on role-aware hosts. **Role restrictions are not security-backward-compatible:**
+a pre-role directory reader may ignore `roles: ["entitlement"]` and accept
+that online key for manifests. Publishers MUST NOT rely on role separation
+for such readers; upgrade them before exposing an entitlement-only key in a
+directory they use for manifest trust. Raising a manifest minor version does
+not negotiate directory-reader support. Separately, a pre-commerce host
 installs a `commerce.entitlement: required` extension without any
 entitlement, and the only thing that stops it is an entitlement-gated
 artifact (§14.4), whose fetch such a host attempts plainly and sees refused
@@ -1259,13 +1282,17 @@ An entitlement is trusted when **all** of the following hold:
 ```
 
 An entry **without** `roles` is a manifest-signing key and nothing else —
-every existing directory keeps its exact meaning. An entitlement key MUST
+legacy entries without roles keep their meaning on role-aware hosts.
+An entitlement key MUST
 be listed with `roles` containing `entitlement`, and a host MUST NOT accept
 it for anything the `manifest` role governs (rotation, recovery, first-use
 strict mode) unless that role is listed too. This separation is the point:
 the issuing key lives on a server that signs at every purchase, the manifest
 key stays offline. A stolen issuing key can mint entitlements until it is
-revoked in the directory; it can never move a host's pin. Publishers SHOULD
+revoked in the directory; on a role-aware host it cannot satisfy a manifest
+directory check unless also granted the manifest role. This does not change
+TOFU when no directory is consulted (§8), nor protect pre-role readers (§13).
+Publishers SHOULD
 keep the two roles on two keys. The reference
 `axp.signing.parse_key_directory(…, role=…)` implements the filter and is
 normative.
@@ -1398,6 +1425,15 @@ stores verified entitlements in host-owned state keyed by extension id
 (`axp.entitlements.EntitlementStore` is the reference).
 
 ### 14.6 Lifetime: validity, grace, disable, revocation
+
+Grace is a non-negative integer number of days. A verifier with an explicit
+local grace-policy override MUST use that override; otherwise it MUST use
+`commerce.grace_days` from the validated manifest when present, and otherwise
+7. Zero is an explicit no-grace policy, not an absent value. Invalid policy
+configuration (including null and negative values) MUST be rejected before
+calling the pure library verifiers. The CLI `entitlement verify` and `entitlement inspect`
+implement this order with `--grace-days` > `--manifest` grace > 7. The pure
+library verifiers do not load manifests: callers resolve and pass `grace_days`.
 
 `valid_until` is the end of the right to use. From `issued_at` to
 `valid_until` (inclusive; a few minutes of clock skew tolerated) the

@@ -19,6 +19,12 @@ fetch — those are HTTP and belong to a host's integration tests.)
 `verify_entitlement` method (see `adapter.py`); a host that does not sell
 extensions skips it without claiming anything.
 
+`test_key_directory.py` uses the optional `parse_key_directory` adapter method
+to test raw constraints, including malformed scope/roles and unfiltered
+(`name=None`) lookups. It never prefilters the host's input through the
+reference parser. Commerce cases also cover malformed issuer constraints and
+manifest grace policies of zero and more than seven days.
+
 `test_panel_views.py` targets validators that understand the 0.5 panel component.
 Older hosts may ignore this component under §2.4 only if the manifest does not
 also declare unsupported lifecycle hooks: pre-0.5 reference validators/schemas

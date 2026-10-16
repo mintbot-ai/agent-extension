@@ -247,6 +247,7 @@ def verify_manifest(manifest: dict, public_key: str | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 KEY_DIRECTORY_PATH = "/.well-known/agent-extension-keys.json"
+_EXTENSION_SCOPE_RE = re.compile(r"^([a-z0-9.-]+/)?[a-z0-9][a-z0-9_-]*$")
 
 # Key roles in the directory (SPEC section 8.5 / 14.3). An entry without a
 # ``roles`` list signs manifests and nothing else — the pre-commerce reading,
@@ -269,14 +270,17 @@ def _entry_covers(scope: object, *, publisher: str, name: str | None) -> bool:
     or a full ``<publisher>/<name>`` id. Entries may likewise be bare — the
     directory publisher's own extensions — or full ids, which is how a
     marketplace that issues entitlements for other publishers' extensions
-    scopes its keys (section 14.3). No list means every extension.
+    scopes its keys (section 14.3). Only an absent field means every extension.
     """
-    if name is None or not isinstance(scope, list):
+    if not isinstance(scope, list) or any(
+        not isinstance(entry, str) or not _EXTENSION_SCOPE_RE.fullmatch(entry)
+        for entry in scope
+    ):
+        return False
+    if name is None:
         return True
     wanted = name if "/" in name else f"{publisher}/{name}"
     for entry in scope:
-        if not isinstance(entry, str):
-            continue
         listed = entry if "/" in entry else f"{publisher}/{entry}"
         if listed == wanted:
             return True
@@ -298,7 +302,9 @@ def parse_key_directory(document: object, *, publisher: str, name: str | None,
     Entries whose ``extensions`` list exists but does not cover ``name``
     (a bare slug or a full ``<publisher>/<name>`` id), entries whose
     ``roles`` list exists but lacks ``role`` (an entry without ``roles`` is a
-    manifest key only) and entries marked ``revoked`` are excluded. A
+    manifest key only) and entries marked ``revoked`` are excluded. Malformed
+    scopes or roles exclude the entire entry, including when ``name=None``
+    requests an unfiltered listing (not authorization for an extension). A
     document for another publisher, or one that is not an object with a
     ``keys`` array, is an error — a host must not treat a stray JSON file as
     a key directory.
@@ -315,12 +321,14 @@ def parse_key_directory(document: object, *, publisher: str, name: str | None,
     for entry in document["keys"]:
         if not isinstance(entry, dict) or entry.get("revoked"):
             continue
-        roles = entry.get("roles")
-        if roles is None:
-            roles = [ROLE_MANIFEST]
-        if not isinstance(roles, list) or role not in roles:
+        roles = entry.get("roles", [ROLE_MANIFEST])
+        if (not isinstance(roles, list)
+                or any(not isinstance(value, str) for value in roles)
+                or role not in roles):
             continue
-        if not _entry_covers(entry.get("extensions"), publisher=publisher, name=name):
+        if "extensions" in entry and not _entry_covers(
+            entry["extensions"], publisher=publisher, name=name
+        ):
             continue
         public_key = entry.get("public_key")
         if isinstance(public_key, str) and _KEY_RE.match(public_key):

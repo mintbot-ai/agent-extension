@@ -2,6 +2,17 @@
 
 ## unreleased — draft 0.5
 
+- Endpoint access gains *Direct access*, a host option: the owner may publish
+  one bearer-authenticated endpoint on the host's own HTTPS origin so a client
+  reaches it without a tunnel. Off by default, an explicit per-endpoint owner
+  choice beside a plain warning, the endpoint's own token checked in constant
+  time before anything reaches the extension, no host credential forwarded,
+  fail closed on a missing token or a disabled extension. No manifest field
+  controls it; the extension keeps listening on loopback.
+- Settings sections: management and use are different places. A host's
+  extension list manages (switch, update policy, update, remove) and links to
+  the extension's section; views and connection settings live in the section.
+  An extension with neither a section nor views gets no "open" link.
 - `permissions.network_egress` accepts `*` and `*:port`: egress to any host
   (on that port), the open internet, for extensions that are a browser or a
   workstation. Consent shows it as the widest grant; the ratchet treats a

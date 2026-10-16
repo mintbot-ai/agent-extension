@@ -260,6 +260,44 @@ authenticated owner. A missing or empty token file is reported as such
 `permissions.network_ingress`, and a loopback endpoint stays loopback — the
 host may explain how to tunnel to it, it MUST NOT expose it on its own.
 
+**Direct access (host option).** The owner MAY ask the host to publish one
+bearer-authenticated endpoint (`auth.scheme: bearer`) on the host's own
+authenticated HTTPS origin, so a client reaches it from anywhere without a
+tunnel. The decision is the owner's, never the extension's or the host's:
+the manifest cannot request it, and a host offering it MUST
+
+- keep it off by default and require an explicit per-endpoint choice by the
+  owner (or a principal the host trusts as the owner), made on an
+  authenticated surface, next to a plain statement that the endpoint then
+  answers anyone on the internet who presents its token — the token alone
+  stands between the internet and the host;
+- relay to the loopback listener without changing it: the extension keeps
+  listening on loopback, the token file stays the extension's, and the host
+  MUST NOT alter `permissions.network_ingress`, the install record's consent
+  or the extension's own view of its endpoint;
+- demand the endpoint's bearer token on every request and on every WebSocket
+  upgrade, compare it to the token file in constant time *before* anything
+  reaches the extension, and answer a missing or wrong token with `401` and
+  nothing else — no health route, no error body that names the extension;
+- forward nothing of its own: no host credential, cookie, session or
+  forwarded-identity header reaches the extension, and the host's own
+  authentication MUST NOT be accepted in place of the token;
+- send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and keep
+  the token out of logs, install records and update reports as §4.2 has it;
+- stop relaying at once when the owner switches it off, when the extension is
+  disabled or uninstalled, or when the token file is missing or empty (fail
+  closed, never fall back to an unauthenticated relay);
+- record the choice on its own install record (host-owned state, not the
+  manifest) so it survives updates and is shown wherever the host shows how
+  to connect to the endpoint.
+
+The path under which the host publishes the endpoint is the host's; the
+reference host uses `/ext/<extension>/<component>`. A host MUST say, wherever
+it shows the connection settings, whether direct access is on and which
+address a client is to use. A host that does not offer direct access is
+conformant: the rule above — a loopback endpoint stays loopback unless the
+owner says otherwise — is the whole of it.
+
 ### 4.2.1 `panel_views` — optional isolated host UI
 
 A panel view declares an application served by an extension service, not an
@@ -424,6 +462,17 @@ navigation, or group sections under one heading for extensions.
 Configuration an extension needs beyond on/off belongs in a panel view under
 that view's isolation rules; a settings section grants no access to the host
 UI.
+
+**Management and use are different places.** A host that lists its
+installed extensions (switch, update policy, update, remove) SHOULD keep that
+list to management and put the use of an extension — its views, its endpoint
+connection settings (§4.2 *Endpoint access*, *Direct access*), its direct
+connection guidance — in the extension's own section. The list entry of an
+extension declaring a section SHOULD link to that section ("Open <title>");
+an extension declaring views but no section MAY open them from its list
+entry; an extension declaring neither has no interface to open and gets no
+such link. Connection settings and credentials MUST NOT be shown from the
+management list of a host that offers sections.
 
 The reference `validate_settings_section(provides)` checks the declaration
 and its view references without I/O, returning a detached copy (`None` when
@@ -1022,7 +1071,8 @@ Add optional `provides.panel_views` (§4.2.1), `provides.settings_section`
 views ignore their declarations and MUST NOT expose them.
 `provides.settings_section` is additive too: hosts that do not render
 settings sections ignore it, and pre-0.5 validators skip it as an unknown
-component type (§2.4).
+component type (§2.4). *Direct access* (§4.2) is a host option that no
+manifest field controls: existing manifests and hosts are unaffected.
 
 Activation hooks require a host upgrade to 0.5 (or an explicit backport of
 the 0.5 lifecycle vocabulary and activation semantics). The pre-0.5 reference

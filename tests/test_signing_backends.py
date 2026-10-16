@@ -116,15 +116,53 @@ def test_sign_manifest_requires_a_declared_key(example):
         signing.sign_manifest(bare, pem)
 
 
+@requires_openssl
+@pytest.mark.parametrize("backend", [
+    pytest.param("cryptography", marks=requires_both_backends), "openssl",
+])
+@pytest.mark.parametrize("algorithm", ["X25519", "ED448", "RSA", "EC"])
+def test_public_key_rejects_other_algorithms(monkeypatch, backend, algorithm):
+    if backend == "cryptography":
+        pytest.importorskip("cryptography")
+    monkeypatch.setattr(signing, "HAVE_CRYPTOGRAPHY", backend == "cryptography")
+    args = ["genpkey", "-algorithm", algorithm]
+    if algorithm == "RSA":
+        args += ["-pkeyopt", "rsa_keygen_bits:2048"]
+    elif algorithm == "EC":
+        args += ["-pkeyopt", "ec_paramgen_curve:P-256"]
+    pem = signing._run_openssl(args).stdout
+    with pytest.raises(signing.SigningError, match="not ed25519"):
+        signing.public_key_from_private(pem)
+
+
+@pytest.mark.parametrize("der", [
+    b"",
+    bytes.fromhex("302a300506032b656e032100") + bytes(32),  # X25519 OID
+    bytes.fromhex("302c300706032b65700500032100") + bytes(32),  # NULL parameters
+    bytes.fromhex("302a300506032b6570032101") + bytes(32),  # unused bit
+    bytes.fromhex("302b300506032b6570032100") + bytes(32),  # wrong sequence length
+    bytes.fromhex("302a300506032b6570032100") + bytes(31),  # truncated key
+    bytes.fromhex("302a300506032b6570032100") + bytes(33),  # trailing byte
+])
+def test_openssl_public_key_requires_exact_ed25519_spki(openssl_only, monkeypatch, der):
+    from subprocess import CompletedProcess
+    monkeypatch.setattr(signing, "_run_openssl", lambda args: CompletedProcess(args, 0, der))
+    with pytest.raises(signing.SigningError, match="not ed25519"):
+        signing.public_key_from_private(b"unused: openssl output is mocked")
+
+
 def test_private_key_must_be_ed25519():
-    cryptography = pytest.importorskip("cryptography")
+    pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
     x_pem = X25519PrivateKey.generate().private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     with pytest.raises(signing.SigningError, match="not ed25519"):
         signing.public_key_from_private(x_pem)
-    with pytest.raises(signing.SigningError, match="not ed25519"):
+    # The CLI rejects X25519 signing itself; only the cryptography loader
+    # supplies our algorithm-specific diagnostic on this separate path.
+    error = "not ed25519" if signing.HAVE_CRYPTOGRAPHY else "openssl pkeyutl failed"
+    with pytest.raises(signing.SigningError, match=error):
         signing.sign_bytes(b"x", x_pem)
 
 

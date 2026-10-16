@@ -138,9 +138,12 @@ def public_key_from_private(private_key_pem: bytes) -> str:
         keyfile.write_bytes(private_key_pem)
         proc = _run_openssl(["pkey", "-in", str(keyfile), "-pubout", "-outform", "DER"])
         der = proc.stdout
-        if len(der) < 32:
-            raise SigningError("openssl produced an unexpectedly short public key")
-        return KEY_PREFIX + base64.b64encode(der[-32:]).decode()
+        # Require the exact Ed25519 SubjectPublicKeyInfo: OID 1.3.101.112,
+        # absent parameters, and a 32-byte BIT STRING with no unused bits.
+        # Other algorithms (notably X25519) can also have 32-byte public keys.
+        if len(der) != len(_SPKI_PREFIX) + 32 or not der.startswith(_SPKI_PREFIX):
+            raise SigningError("private key is not ed25519 (unexpected public-key SPKI)")
+        return KEY_PREFIX + base64.b64encode(der[len(_SPKI_PREFIX):]).decode()
 
 
 def sign_bytes(data: bytes, private_key_pem: bytes) -> str:

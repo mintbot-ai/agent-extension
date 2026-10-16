@@ -5,7 +5,9 @@ public and signed as always — discovery, the consent card and update checks
 need it — but the artifact is released **only against an entitlement**
 (`targets[].delivery.auth.scheme: entitlement`): a host without one never
 receives the code. Three plans are offered: a monthly subscription, a
-lifetime licence with twelve months of updates, and a 14-day trial.
+lifetime licence with twelve months of updates, and a 14-day trial. The
+issuer's refresh endpoint also speaks x402 (`commerce.payment`), so an agent
+with a wallet could pay the `402` by itself — optional, like every rail.
 
 Everything here is a structural fixture, not a published release: the
 all-zero digests, the script paths and the example domain are placeholders;

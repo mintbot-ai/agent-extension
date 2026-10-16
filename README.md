@@ -50,7 +50,9 @@ the reference implementation.
    key directory with a separate `entitlement` key role, presented in an
    `Authorization: AXP-Entitlement` header to fetch an artifact the publisher
    keeps behind payment. No prices computed, no checkout run, no money moved
-   by the protocol — see [`docs/COMMERCE.md`](docs/COMMERCE.md).
+   by the protocol; an issuer MAY let an agent pay its `402` by itself over a
+   rail such as [x402](https://x402.org), never required —
+   see [`docs/COMMERCE.md`](docs/COMMERCE.md).
 
 ## Layout
 

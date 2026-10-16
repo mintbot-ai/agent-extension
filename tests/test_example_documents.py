@@ -79,7 +79,8 @@ def test_commerce_example_verifies_end_to_end():
     summary = manifest.validate(doc)
     assert signing.verify_manifest(doc) is True
     assert summary["commerce"] == {"entitlement": "required", "plans": ["pro-monthly", "lifetime", "trial"],
-                                   "issuers": ["ext.example.com"], "gated_delivery": True}
+                                   "issuers": ["ext.example.com"], "payment": ["x402"],
+                                   "gated_delivery": True}
     directory = _load(PAID / "agent-extension-keys.json")
     manifest_keys = signing.parse_key_directory(directory, publisher="ext.example.com", name="paid-tool")
     issuing_keys = signing.parse_key_directory(directory, publisher="ext.example.com", name="paid-tool",

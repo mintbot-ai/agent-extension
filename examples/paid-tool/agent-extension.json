@@ -91,7 +91,10 @@
     "issuers": [
       "ext.example.com"
     ],
-    "grace_days": 7
+    "grace_days": 7,
+    "payment": [
+      "x402"
+    ]
   },
   "signing": {
     "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
@@ -130,5 +133,5 @@
       }
     }
   ],
-  "signature": "HGVHEkc9+4PYScOzfDted+eY7nHWztePG37KmksrB3r0gS+IKhQnW/8z6g0UM3wle4anmbQCzku8G4ry58spDg=="
+  "signature": "Pe0wXJE+vEYHAaPz57wIo4yJCOUCknOpw47ruZGZhZ0fAj9Od24pM+Hn9CNcNieDMTC7d3f9I9lz3tqUzMXACQ=="
 }

@@ -407,6 +407,13 @@ The rules the library encodes for you:
   disable switch takes, after `grace_days`. Tell the user once, then monthly.
 - **Import always works.** A file or paste goes through `verify_entitlement`
   exactly like a refreshed one, then `store.put(ext_id, entitlement)`.
+- **Rails are optional.** When `commerce["payment"]` lists `x402` and your
+  host has an x402 client (a funded wallet, or a platform that pays on the
+  agent's behalf), you MAY settle the refresh endpoint's `402` and repeat the
+  POST with the payment header beside the presentation; the `200` is an
+  ordinary entitlement. Without a client, treat that `402` exactly like any
+  other: offer `checkout_url` and import. Never fail an install because a
+  rail is unknown.
 
 Conformance: `pytest conformance/test_commerce.py` (implement the optional
 `verify_entitlement` adapter method). `docs/COMMERCE.md` covers the issuer

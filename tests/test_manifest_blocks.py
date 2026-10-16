@@ -298,6 +298,7 @@ def _commerce(**overrides):
         "refresh_url": "https://api.ext.example.com/axp/entitlements",
         "issuers": ["ext.example.com", "market.example"],
         "grace_days": 7,
+        "payment": ["x402"],
     }
     block.update(overrides)
     return block
@@ -326,6 +327,9 @@ def _commerce(**overrides):
     (_commerce(issuers="ext.example.com"), "commerce.issuers"),
     (_commerce(issuers=["Ext.Example.com"]), "commerce.issuers"),
     (_commerce(grace_days="7"), "commerce.grace_days"),
+    (_commerce(payment="x402"), "commerce.payment"),
+    (_commerce(payment=["X402"]), "commerce.payment"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time", "price": {"amount": 500, "currency": "STABLECOIN"}}]), "price.currency"),
 ])
 def test_commerce_rejections(example, commerce, fragment):
     example["commerce"] = commerce
@@ -338,13 +342,19 @@ def test_commerce_summary_and_defaults(example):
     example["commerce"] = _commerce()
     summary = _validate(example)["commerce"]
     assert summary == {"entitlement": "required", "plans": ["pro", "lifetime", "trial"],
-                       "issuers": ["ext.example.com", "market.example"], "gated_delivery": False}
-    # Issuers default to the publisher; plans and URLs are optional; an unknown
-    # plan kind is shown as-is, never refused (SPEC 2.4).
-    example["commerce"] = {"entitlement": "optional", "plans": [{"id": "team", "kind": "x-seat-based", "seats": 5}]}
+                       "issuers": ["ext.example.com", "market.example"], "payment": ["x402"],
+                       "gated_delivery": False}
+    # Issuers default to the publisher; plans, URLs and payment rails are
+    # optional; an unknown plan kind or rail is shown as-is, never refused
+    # (SPEC 2.4); a stablecoin ticker is an acceptable price currency.
+    example["commerce"] = {"entitlement": "optional", "payment": ["x402", "x-invoice"],
+                           "plans": [{"id": "team", "kind": "x-seat-based", "seats": 5,
+                                      "price": {"amount": 1000000, "currency": "USDC"}}]}
     summary = _validate(example)["commerce"]
-    assert summary == {"entitlement": "optional", "plans": ["team"],
-                       "issuers": ["ext.example.com"], "gated_delivery": False}
+    assert summary == {"entitlement": "optional", "plans": ["team"], "issuers": ["ext.example.com"],
+                       "payment": ["x402", "x-invoice"], "gated_delivery": False}
+    example["commerce"] = {"entitlement": "optional"}
+    assert _validate(example)["commerce"]["payment"] == []
 
 
 def test_gated_delivery_needs_a_commerce_block(example):

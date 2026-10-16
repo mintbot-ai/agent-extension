@@ -83,6 +83,12 @@ SUBSCRIPTION_PERIODS = ("month", "year")
 # whatever the artifact server answers.
 DELIVERY_AUTH_SCHEMES = ("entitlement",)
 DELIVERY_AUTH_ENTITLEMENT = "entitlement"
+# ``commerce.payment`` names the machine-payable rails the issuer's refresh
+# endpoint speaks (SPEC section 14.5). Open vocabulary: an unknown rail is
+# kept for display and not interpreted; a host pays by none of them and the
+# scheme still works (import, checkout_url, an unpaid refresh).
+PAYMENT_X402 = "x402"
+PAYMENT_RAILS = (PAYMENT_X402,)
 
 # Grammar — byte-identical to schema/agent-extension.schema.json patterns.
 SPEC_VERSION_RE = re.compile(r"^0\.[0-9]+$")
@@ -102,7 +108,7 @@ EGRESS_RE = re.compile(r"^(\*|(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]{1,5})?$")
 INGRESS_RE = re.compile(r"^([A-Za-z0-9.:\[\]-]+:)?[0-9]{1,5}/(tcp|udp)$")
 FS_SCOPE_RE = re.compile(r"^([a-z][a-z0-9_-]*:)?[a-z][a-z0-9_-]*:(r|rw)$")
 VERSION_RANGE_RE = re.compile(r"^(\s*(>=|<=|>|<|=|\^|~)?[0-9]+(\.[0-9A-Za-z-]+)*\s*)+$")
-CURRENCY_RE = re.compile(r"^[A-Z]{3}$")  # ISO 4217 code; amounts are integers in minor units
+CURRENCY_RE = re.compile(r"^[A-Z]{3,6}$")  # ISO 4217 code or a stablecoin ticker (USDC); amounts are integers in minor units
 
 
 class ManifestError(ValueError):
@@ -483,8 +489,9 @@ def _check_plan(entry: Any, index: int) -> str:
 
 def _check_commerce(data: dict, publisher: str) -> dict | None:
     """The optional ``commerce`` block (SPEC section 14.1). Returns the
-    summary a host needs — the entitlement mode, the plan ids and the
-    issuers whose entitlement keys are trusted — or None when absent."""
+    summary a host needs — the entitlement mode, the plan ids, the issuers
+    whose entitlement keys are trusted and the payment rails the refresh
+    endpoint speaks — or None when absent."""
     block = _opt_dict(data, "commerce", "")
     if block is None:
         return None
@@ -506,7 +513,10 @@ def _check_commerce(data: dict, publisher: str) -> dict | None:
     issuers = _string_list(block, "issuers", "commerce.", pattern=PUBLISHER_RE,
                            expect="a lowercase DNS name such as ext.example.com")
     _non_negative_int(block, "grace_days", "commerce.")
-    return {"entitlement": mode, "plans": plan_ids, "issuers": issuers or [publisher]}
+    payment = _string_list(block, "payment", "commerce.", pattern=NAME_RE,
+                           expect="a rail name such as x402") or []
+    return {"entitlement": mode, "plans": plan_ids, "issuers": issuers or [publisher],
+            "payment": payment}
 
 
 def _check_delivery_auth(delivery: dict, path: str) -> bool:
@@ -574,7 +584,7 @@ def validate(data: Any, *, origin: str | None = None) -> dict:
     only to derive a missing v0.2 ``identity.publisher`` (SPEC §13).
     Returns a summary: ``{ext_id, publisher, publisher_derived, name,
     version, channel, signed, runtimes, provides, commerce}`` — ``commerce``
-    is ``{entitlement, plans, issuers, gated_delivery}`` (SPEC section 14)
+    is ``{entitlement, plans, issuers, payment, gated_delivery}`` (SPEC section 14)
     or None for an extension that sells nothing.
     """
     if not is_axp_manifest(data):

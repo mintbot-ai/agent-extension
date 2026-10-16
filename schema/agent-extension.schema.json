@@ -295,7 +295,7 @@
                 "required": ["amount", "currency"],
                 "properties": {
                   "amount": { "type": "integer", "minimum": 0, "description": "minor units (500 = 5.00); JCS forbids floats" },
-                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217" }
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3,6}$", "description": "ISO 4217 code, or a stablecoin ticker such as USDC for a machine-payable rail" }
                 }
               },
               "period": { "type": "string", "enum": ["month", "year"], "description": "subscription only (required there)" },
@@ -307,7 +307,8 @@
         "checkout_url": { "$ref": "#/$defs/httpsUrl", "description": "where a host sends the user to buy; the host appends axp_extension, axp_holder and optionally axp_return (14.5)" },
         "refresh_url": { "$ref": "#/$defs/httpsUrl", "description": "issuer endpoint a host POSTs a presentation to for a new or renewed entitlement (14.5)" },
         "issuers": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$" }, "description": "DNS names whose key directories (role entitlement) may sign entitlements for this extension; default: the publisher" },
-        "grace_days": { "type": "integer", "minimum": 0, "description": "days past valid_until a host keeps the extension running while renewing (default 7)" }
+        "grace_days": { "type": "integer", "minimum": 0, "description": "days past valid_until a host keeps the extension running while renewing (default 7)" },
+        "payment": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" }, "description": "machine-payable rails the refresh_url's 402 speaks (14.5): x402 = the 402 is an x402 payment-required response a host MAY pay and retry. Open vocabulary; absent or unsupported = the host obtains the entitlement by import, checkout_url or an unpaid refresh, which always work" }
       }
     },
 

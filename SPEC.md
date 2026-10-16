@@ -1092,7 +1092,8 @@ settings sections ignore it, and pre-0.5 validators skip it as an unknown
 component type (§2.4). *Direct access* (§4.2) is a host option that no
 manifest field controls: existing manifests and hosts are unaffected.
 
-Commerce (§14) is additive: the optional top-level `commerce` block,
+Commerce (§14) is additive: the optional top-level `commerce` block
+(including `commerce.payment`, whose rails a host may all decline),
 `targets[].delivery.auth`, the key directory's `roles` and the
 `AXP_ENTITLEMENT_FILE` variable are all ignored by hosts that predate them,
 and a key directory entry without `roles` means exactly what it meant
@@ -1180,18 +1181,20 @@ are spelled out honestly in §14.9.
   "checkout_url": "https://ext.example.com/paid-tool/buy",          // §14.5
   "refresh_url":  "https://api.ext.example.com/axp/entitlements",   // §14.5, optional
   "issuers":      ["ext.example.com"],                              // default: the publisher
-  "grace_days":   7                                                 // §14.6, default 7
+  "grace_days":   7,                                                // §14.6, default 7
+  "payment":      ["x402"]                                          // §14.5, optional: rails the 402 speaks
 }
 ```
 
 | field | req | meaning |
 |-------|-----|---------|
 | `entitlement` | ✔ | `required`: a commerce-capable host installs and enables the extension only while it holds a valid entitlement. `optional`: the extension installs and runs freely; an entitlement unlocks paid features inside it (the host still offers purchase, import and renewal). |
-| `plans[]` | | What is for sale, for the consent card and catalogues. `id` (slug, what an entitlement's `plan` names), `kind` ∈ `one_time \| subscription \| trial` (an unknown kind is shown as-is and not interpreted, §2.4), `title`, `price` (`amount` in minor units as an integer — JCS forbids floats — and an ISO 4217 `currency`), `period` ∈ `month \| year` (subscription, required), `days` (trial, required), `updates_months` (one-time: how long new releases are covered; absent = all). |
+| `plans[]` | | What is for sale, for the consent card and catalogues. `id` (slug, what an entitlement's `plan` names), `kind` ∈ `one_time \| subscription \| trial` (an unknown kind is shown as-is and not interpreted, §2.4), `title`, `price` (`amount` in minor units as an integer — JCS forbids floats — and a `currency`: an ISO 4217 code, or a stablecoin ticker such as `USDC` where a machine-payable rail is offered), `period` ∈ `month \| year` (subscription, required), `days` (trial, required), `updates_months` (one-time: how long new releases are covered; absent = all). |
 | `checkout_url` | | https; where a host sends the user to buy (§14.5). |
 | `refresh_url` | | https; the issuer endpoint a host asks for a new or renewed entitlement (§14.5). |
 | `issuers[]` | | DNS names whose key directories may vouch for entitlement keys for this extension (§14.3). Default `[identity.publisher]`. A publisher who lets a marketplace sell for them lists it here. |
 | `grace_days` | | How long past `valid_until` the host keeps the extension running while renewal is attempted (§14.6). Default 7. |
+| `payment[]` | | Machine-payable rails the `refresh_url`'s `402` speaks (§14.5); `x402` is the one this document names. Open vocabulary, a capability hint for hosts and catalogues; a host that speaks none of them obtains the entitlement by import or checkout exactly as if the field were absent. |
 
 The three plan kinds cover the usual models and their combination: a
 subscription (use and updates for a period, renewed), a one-time purchase
@@ -1369,6 +1372,25 @@ A host polls the refresh endpoint after checkout at a gentle cadence (and on
 before `valid_until`; once a minute for the first ten minutes after opening
 checkout and daily thereafter is a reasonable shape.
 
+**Machine-payable refresh.** The `402` a refresh endpoint answers MAY at
+the same time be the payment-required response of a machine-payable rail
+named in `commerce.payment`. For `x402` (<https://x402.org>) that means the
+issuer's `402` carries x402 payment requirements; a host that speaks x402
+MAY settle the payment and repeat the same `POST`, with the rail's payment
+header beside its presentation, and the issuer — once the payment is settled
+— answers `200` with an ordinary entitlement bound to the presentation's
+`holder`. The rail only moves the money: the entitlement is the same
+document, stored and verified the same way, a subscription renews by paying
+the `402` again, and a host that speaks no rail treats the `402` exactly as
+above (checkout, import). The presentation proves the holder in the very
+request that carries the payment, so the issuer binds the two without any
+`axp_holder` round trip. Nothing in this section requires a rail: a host
+MAY implement none, `commerce.payment` is an open vocabulary and a host
+ignores rails it does not know, and an issuer MUST still honour import and
+an unpaid refresh for a holder that has bought elsewhere. Metered,
+per-request pricing is not modelled here — an extension's own server may
+use x402 directly for that, which is outside AXP.
+
 A host that offers a web surface MAY accept the entitlement on `axp_return`
 (`?entitlement=<base64url JSON>`); it MUST still verify it exactly as an
 imported one. In every path the host verifies (§14.3) before it stores, and
@@ -1447,7 +1469,9 @@ they own — and for honest publishers, who get all of that for free.
 
 What AXP defines here is small on purpose: one signed document, one header,
 one key role, two dates. Prices, taxes, invoices, refunds, seats, teams and
-every payment rail stay outside the protocol, where they belong.
+every payment rail stay outside the protocol, where they belong; a rail a
+host can pay by itself (`commerce.payment`, §14.5) is one more way to buy
+the receipt, never a requirement for issuing or checking it.
 
 ## 15. Open questions (to resolve before v1.0)
 

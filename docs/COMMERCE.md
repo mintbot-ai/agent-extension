@@ -141,6 +141,39 @@ For a **transfer** (user re-installed their agent → new host key) issue a
 new entitlement to the new holder and mark the old serial revoked; the
 protocol does not copy entitlements between machines.
 
+### Letting the agent pay by itself: x402 (optional)
+
+The `402` above can double as an [x402](https://x402.org) payment-required
+response. x402 is an open protocol in which a server answers `402` with
+machine-readable payment requirements (amount, network, payee), the client
+signs a stablecoin payment and repeats the request with the payment header,
+and a *facilitator* verifies and settles it. Declare it in the manifest —
+`"payment": ["x402"]`, and price plans in `USDC` if you like — and put the
+x402 middleware in front of the refresh endpoint:
+
+```
+POST /axp/entitlements
+Authorization: AXP-Entitlement <token>        # the presentation proves the holder …
+<x402 payment header>                          # … and the payment, in the same request
+
+402 + x402 payment requirements               # first call: nothing owed yet, here is the price
+200 {…entitlement bound to the presentation's holder…}   # after settlement
+```
+
+The binding is free: the presentation names the holder and the payment
+names the payer, in one request, so there is no checkout page and no
+`axp_holder` round trip. A subscription renews by paying the `402` again
+when the host refreshes before `valid_until`. The entitlement you return is
+the ordinary document — you can put the settlement reference in an `x-`
+field for your records.
+
+Keep the other paths. A host that speaks no rail still gets your `402` with
+`checkout_url` and still accepts an import, and you must still answer an
+unpaid refresh with `200` for a holder who bought elsewhere. x402 is a way to
+collect, not a condition for issuing. Metered, per-call pricing of the
+extension's own API is also x402's home turf — do it there, inside the
+extension, AXP never sees it.
+
 ## 4. Gated artifact server
 
 A static host cannot do this; a few lines in any web framework can. On

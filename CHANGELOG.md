@@ -28,6 +28,13 @@
   roles, entitlement, public example keys) and `conformance/test_commerce.py`
   behind the optional `verify_entitlement` adapter method. Open questions
   moved to SPEC 15.
+- `commerce.payment` (SPEC 14.5): the machine-payable rails an issuer's
+  refresh `402` speaks, `x402` named. A host with an x402 client MAY settle
+  the `402` and repeat the POST with the payment header beside its
+  presentation, receiving an ordinary entitlement bound to that holder; a
+  host without one treats the `402` as before. Open vocabulary, nothing
+  required of hosts or issuers, import and checkout keep working. Plan
+  prices accept a stablecoin ticker (`USDC`) besides ISO 4217.
 - Endpoint access gains *Direct access*, a host option: the owner may publish
   one bearer-authenticated endpoint on the host's own HTTPS origin so a client
   reaches it without a tunnel. Off by default, an explicit per-endpoint owner

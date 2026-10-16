@@ -153,3 +153,18 @@ What it buys you:
 Keep the directory on the publisher domain itself (the one in
 `identity.publisher`); hosts fetch it from there, never from a URL inside a
 manifest.
+
+**Key roles (SPEC section 14.3).** An entry may carry `"roles": [...]`. Without
+it the key signs manifests and nothing else — every directory written before
+roles existed keeps its meaning. A key that signs *entitlements* (the proof
+of purchase a sold extension needs, [`COMMERCE.md`](COMMERCE.md)) is listed
+with `"roles": ["entitlement"]`, by `axp keydir --entitlement-key`. That key
+lives on the server that sells and signs at every purchase; listed without
+the `manifest` role it can never move a host's pin, however it is stolen.
+Keep the two on separate keys.
+
+```bash
+axp keydir --publisher ext.example.com \
+  --key ed25519:MANIFEST...@graph-memory \
+  --entitlement-key ed25519:ISSUING...@graph-memory -o agent-extension-keys.json
+```

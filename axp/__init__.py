@@ -16,15 +16,36 @@ Runtime-neutral building blocks any host or publisher tool can use:
 * :mod:`axp.repository` — the §3.1 repository walk (latest release → release
   listing → repository root) and the §7.1 ``github`` listing resolver, with
   an injected ``fetch`` so a host runs it behind its own HTTP client.
+* :mod:`axp.entitlements` — §14 commerce: signed entitlements (issue /
+  verify / time status / update coverage), holder presentations for gated
+  downloads and issuer requests (the ``AXP-Entitlement`` Authorization
+  header), and the host-side :class:`~axp.entitlements.EntitlementStore`.
 * :mod:`axp.publish` — publisher tooling behind ``axp init`` / ``axp release``.
 * :mod:`axp.cli` — the ``axp`` command (``init | keygen | release | validate |
-  canonicalize | sign | verify | target | keydir | resolve``).
+  canonicalize | sign | verify | target | keydir | resolve | entitlement``).
 
 Stdlib-only except for signing, which works with either the ``cryptography``
 package or the ``openssl`` binary — whichever the host has. Host authors:
 start with ``docs/HOST-GUIDE.md``.
 """
 
+from .entitlements import (
+    EntitlementError,
+    EntitlementStore,
+    Verdict,
+    authorization_header,
+    covers_release,
+    holder_from_private,
+    issue,
+    make_presentation,
+    parse_authorization_header,
+    sign_entitlement,
+    time_status,
+    validate_entitlement,
+    verify_entitlement,
+    verify_presentation,
+    verify_presented_entitlement,
+)
 from .jcs import JCSError, canonicalize, signing_input
 from .updates import PolicyError, channel_accepts, is_expired, parse_policy, permissions_widened
 from .versions import VersionError, compare, is_newer, parse_constraint, satisfies
@@ -45,21 +66,36 @@ from .signing import (
 __version__ = "0.5.0"
 
 __all__ = [
+    "EntitlementError",
+    "EntitlementStore",
     "JCSError",
     "ManifestError",
     "PanelViewError",
     "PolicyError",
+    "Verdict",
     "VersionError",
+    "authorization_header",
     "channel_accepts",
     "compare",
+    "covers_release",
+    "holder_from_private",
     "is_expired",
     "is_newer",
+    "issue",
     "key_directory_url",
+    "make_presentation",
+    "parse_authorization_header",
     "parse_key_directory",
     "parse_constraint",
     "parse_policy",
     "permissions_widened",
     "satisfies",
+    "sign_entitlement",
+    "time_status",
+    "validate_entitlement",
+    "verify_entitlement",
+    "verify_presentation",
+    "verify_presented_entitlement",
     "PinStore",
     "SigningError",
     "TrustDecision",

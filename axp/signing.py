@@ -248,26 +248,63 @@ def verify_manifest(manifest: dict, public_key: str | None = None) -> bool:
 
 KEY_DIRECTORY_PATH = "/.well-known/agent-extension-keys.json"
 
+# Key roles in the directory (SPEC section 8.5 / 14.3). An entry without a
+# ``roles`` list signs manifests and nothing else — the pre-commerce reading,
+# so existing directories keep their exact meaning. An online entitlement key
+# must say so explicitly, and is then never accepted for a manifest: a stolen
+# issuing key cannot move a host's pin.
+ROLE_MANIFEST = "manifest"
+ROLE_ENTITLEMENT = "entitlement"
+KEY_ROLES = (ROLE_MANIFEST, ROLE_ENTITLEMENT)
+
 
 def key_directory_url(publisher: str) -> str:
     return f"https://{publisher}{KEY_DIRECTORY_PATH}"
 
 
-def parse_key_directory(document: object, *, publisher: str, name: str | None) -> list[str]:
-    """The publisher's currently valid keys for extension ``name``.
+def _entry_covers(scope: object, *, publisher: str, name: str | None) -> bool:
+    """Does an entry's optional ``extensions`` list cover ``name``?
+
+    ``name`` is a bare slug (an extension of the directory's own publisher)
+    or a full ``<publisher>/<name>`` id. Entries may likewise be bare — the
+    directory publisher's own extensions — or full ids, which is how a
+    marketplace that issues entitlements for other publishers' extensions
+    scopes its keys (section 14.3). No list means every extension.
+    """
+    if name is None or not isinstance(scope, list):
+        return True
+    wanted = name if "/" in name else f"{publisher}/{name}"
+    for entry in scope:
+        if not isinstance(entry, str):
+            continue
+        listed = entry if "/" in entry else f"{publisher}/{entry}"
+        if listed == wanted:
+            return True
+    return False
+
+
+def parse_key_directory(document: object, *, publisher: str, name: str | None,
+                        role: str = ROLE_MANIFEST) -> list[str]:
+    """The publisher's currently valid keys for extension ``name`` in ``role``.
 
     Shape::
 
         {"publisher": "ext.example.com",
          "keys": [{"public_key": "ed25519:…", "key_id": "…",
                    "extensions": ["graph-memory"],   # optional: restrict to names
+                   "roles": ["manifest"],            # optional: default manifest only
                    "revoked": false}]}
 
-    Entries whose ``extensions`` list exists but does not contain ``name``
-    and entries marked ``revoked`` are excluded. A document for another
-    publisher, or one that is not an object with a ``keys`` array, is an
-    error — a host must not treat a stray JSON file as a key directory.
+    Entries whose ``extensions`` list exists but does not cover ``name``
+    (a bare slug or a full ``<publisher>/<name>`` id), entries whose
+    ``roles`` list exists but lacks ``role`` (an entry without ``roles`` is a
+    manifest key only) and entries marked ``revoked`` are excluded. A
+    document for another publisher, or one that is not an object with a
+    ``keys`` array, is an error — a host must not treat a stray JSON file as
+    a key directory.
     """
+    if role not in KEY_ROLES:
+        raise SigningError(f"unknown key role {role!r} (known: {list(KEY_ROLES)})")
     if not isinstance(document, dict) or not isinstance(document.get("keys"), list):
         raise SigningError("key directory is not an object with a keys[] array")
     if document.get("publisher") and document["publisher"] != publisher:
@@ -278,8 +315,12 @@ def parse_key_directory(document: object, *, publisher: str, name: str | None) -
     for entry in document["keys"]:
         if not isinstance(entry, dict) or entry.get("revoked"):
             continue
-        scope = entry.get("extensions")
-        if name is not None and isinstance(scope, list) and name not in scope:
+        roles = entry.get("roles")
+        if roles is None:
+            roles = [ROLE_MANIFEST]
+        if not isinstance(roles, list) or role not in roles:
+            continue
+        if not _entry_covers(entry.get("extensions"), publisher=publisher, name=name):
             continue
         public_key = entry.get("public_key")
         if isinstance(public_key, str) and _KEY_RE.match(public_key):

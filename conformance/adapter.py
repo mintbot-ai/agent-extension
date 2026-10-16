@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from typing import Protocol
@@ -30,6 +31,16 @@ class Adapter(Protocol):
                                       directory_keys: list[str]) -> tuple[bool, str]:
         """OPTIONAL (section 8.5): the same decision with the publisher key
         directory consulted. Hosts that do not implement it skip those cases."""
+
+    def verify_entitlement(self, manifest: dict, entitlement: dict, holder: str,
+                           key_directory: dict, now: datetime) -> tuple[bool, str]:
+        """OPTIONAL (section 14, commerce-capable hosts): the entitlement check
+        for ``manifest`` as the host runs it before an install or at its
+        periodic re-check — ``holder`` is the host's own key, ``key_directory``
+        the issuer's directory document as fetched, ``now`` the clock.
+        Returns ``(valid, status)`` with status in valid | grace | expired |
+        not_yet_valid | wrong_extension | wrong_holder | untrusted_issuer |
+        untrusted_key | bad_signature | malformed."""
 
 
 class ReferenceAdapter:
@@ -57,6 +68,27 @@ class ReferenceAdapter:
                                       directory_keys: list[str]) -> tuple[bool, str]:
         decision = self._pins.evaluate(ext_id, manifest, directory_keys=directory_keys)
         return decision.accepted, decision.action
+
+    def verify_entitlement(self, manifest: dict, entitlement: dict, holder: str,
+                           key_directory: dict, now: datetime) -> tuple[bool, str]:
+        from axp import entitlements
+        from axp.manifest import validate
+        from axp.signing import ROLE_ENTITLEMENT, SigningError, parse_key_directory
+        summary = validate(manifest)
+        commerce = summary["commerce"] or {"issuers": [summary["publisher"]]}
+        issuer = str(entitlement.get("issuer") or "")
+        if issuer not in commerce["issuers"]:
+            return False, "untrusted_issuer"
+        try:
+            issuer_keys = parse_key_directory(key_directory, publisher=issuer, name=summary["ext_id"],
+                                              role=ROLE_ENTITLEMENT)
+        except SigningError:
+            return False, "untrusted_key"
+        verdict = entitlements.verify_entitlement(
+            entitlement, extension=summary["ext_id"], holder=holder, issuer_keys=issuer_keys,
+            issuers=commerce["issuers"], now=now,
+        )
+        return verdict.valid, verdict.status
 
 
 def make_adapter() -> Adapter:

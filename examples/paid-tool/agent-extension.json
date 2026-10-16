@@ -1,0 +1,134 @@
+{
+  "spec_version": "0.5",
+  "kind": "agent-extension",
+  "identity": {
+    "publisher": "ext.example.com",
+    "name": "paid-tool",
+    "version": "1.0.0",
+    "display_name": "Paid Tool",
+    "description": "A worked commerce example: a sold MCP tool whose artifact is released only to hosts that present a valid entitlement (SPEC 14).",
+    "author": "Example Org",
+    "license": "LicenseRef-Proprietary",
+    "homepage": "https://ext.example.com/paid-tool"
+  },
+  "provides": {
+    "mcp_servers": [
+      {
+        "name": "paid-tool",
+        "transport": "stdio",
+        "summary": "the sold tool surface over MCP",
+        "command_ref": "bin/paid-tool-mcp"
+      }
+    ],
+    "tools": [
+      {
+        "name": "paid_lookup",
+        "summary": "the one tool this extension sells"
+      }
+    ]
+  },
+  "permissions": {
+    "network_egress": [
+      "api.ext.example.com:443"
+    ],
+    "filesystem": [
+      "state:rw"
+    ],
+    "root": false,
+    "reason": {
+      "network_egress": "the tool queries the publisher's API; the same host answers entitlement renewals"
+    }
+  },
+  "release": {
+    "channel": "stable",
+    "published_at": "2026-10-16T09:00:00Z",
+    "valid_until": "2027-04-14T09:00:00Z",
+    "artifact": {
+      "url": "https://ext.example.com/paid-tool-1.0.0.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "updates": {
+    "source": {
+      "kind": "direct",
+      "url": "https://ext.example.com/.well-known/agent-extension.json"
+    },
+    "check": "daily",
+    "policy": "notify"
+  },
+  "commerce": {
+    "entitlement": "required",
+    "plans": [
+      {
+        "id": "pro-monthly",
+        "kind": "subscription",
+        "period": "month",
+        "title": "Pro, monthly",
+        "price": {
+          "amount": 500,
+          "currency": "EUR"
+        }
+      },
+      {
+        "id": "lifetime",
+        "kind": "one_time",
+        "title": "Lifetime licence, one year of updates",
+        "price": {
+          "amount": 4900,
+          "currency": "EUR"
+        },
+        "updates_months": 12
+      },
+      {
+        "id": "trial",
+        "kind": "trial",
+        "days": 14,
+        "title": "Free trial"
+      }
+    ],
+    "checkout_url": "https://ext.example.com/paid-tool/buy",
+    "refresh_url": "https://api.ext.example.com/axp/entitlements",
+    "issuers": [
+      "ext.example.com"
+    ],
+    "grace_days": 7
+  },
+  "signing": {
+    "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
+    "key_id": "example-manifest-2026",
+    "next_key": null
+  },
+  "targets": [
+    {
+      "runtime": "posix",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "enforcement": "advisory",
+      "delivery": {
+        "method": "archive",
+        "url": "https://ext.example.com/paid-tool-1.0.0.tar.gz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "auth": {
+          "scheme": "entitlement"
+        }
+      },
+      "lifecycle": {
+        "install": "install.sh",
+        "upgrade": "upgrade.sh",
+        "uninstall": "uninstall.sh",
+        "health": "healthcheck.sh"
+      },
+      "component_map": {
+        "mcp_servers": {
+          "command": [
+            "bin/paid-tool-mcp"
+          ],
+          "register": "auto"
+        }
+      }
+    }
+  ],
+  "signature": "HGVHEkc9+4PYScOzfDted+eY7nHWztePG37KmksrB3r0gS+IKhQnW/8z6g0UM3wle4anmbQCzku8G4ry58spDg=="
+}

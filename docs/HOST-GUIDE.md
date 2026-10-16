@@ -348,6 +348,70 @@ components it launches itself:
   `hooks`, `channels`, …). Those stay `advisory`, and the consent card says
   so.
 
+## Commerce — entitlements and gated artifacts (optional, SPEC §14)
+
+A host that installs sold extensions adds one key, one store and four checks
+on top of Trusted. Nothing here touches money: the issuer collected it and
+signed an *entitlement*; the host verifies and presents it.
+
+```python
+from axp import (EntitlementStore, holder_from_private, verify_entitlement, covers_release,
+                 make_presentation, authorization_header, parse_key_directory)
+from axp.signing import ROLE_ENTITLEMENT
+
+host_key = state_dir / "host.key"              # axp keygen once per installation; never leaves the machine
+holder = holder_from_private(host_key.read_bytes())
+store = EntitlementStore(state_dir / "entitlements.json")
+
+commerce = summary["commerce"]                 # from validate(); None = not sold
+if commerce and commerce["entitlement"] == "required":
+    entitlement = store.get(ext_id)
+    if entitlement is None:
+        offer_checkout(commerce)               # §14.5: checkout_url + axp_extension/axp_holder, refresh_url, import
+        return
+    issuer = entitlement["issuer"]
+    document = fetch_json(key_directory_url(issuer))          # the ISSUER's directory, cached next to the entitlement
+    issuer_keys = parse_key_directory(document, publisher=issuer, name=ext_id, role=ROLE_ENTITLEMENT)
+    verdict = verify_entitlement(entitlement, extension=ext_id, holder=holder,
+                                 issuer_keys=issuer_keys, issuers=commerce["issuers"],
+                                 grace_days=manifest["commerce"].get("grace_days", 7))
+    if not verdict.valid:
+        refuse_or_renew(verdict.status, verdict.reason)       # expired -> refresh_url first, then disable (§14.6)
+    if not covers_release(entitlement, candidate_manifest):
+        show_update_needs_renewal()                           # §14.7: never apply, never nag
+
+headers = {}
+if target["delivery"].get("auth", {}).get("scheme") == "entitlement":
+    presentation = make_presentation(host_private_key_pem=host_key.read_bytes(),
+                                     audience=target["delivery"]["url"], entitlement=entitlement)
+    headers["Authorization"] = authorization_header(presentation)   # §14.4; 401/402/403 are the server's answers
+artifact = fetch(target["delivery"]["url"], headers=headers)          # then sha256 as always
+```
+
+The rules the library encodes for you:
+
+- **Role separation.** `parse_key_directory(..., role=ROLE_ENTITLEMENT)` is
+  the only way to obtain issuer keys; the default (manifest) role never
+  returns an entitlement-only key and vice versa. A stolen online issuing
+  key cannot move a pin — your trust code is unchanged and already safe.
+- **Issuers come from the manifest.** Refuse an entitlement whose `issuer`
+  is not in `commerce.issuers` *before* fetching anything; never let a
+  stranger's directory vouch.
+- **Presentations are per request.** Make a fresh one for every fetch; the
+  audience is the exact URL and the lifetime is five minutes. Do not cache or
+  log the header.
+- **Hand it over.** Write the verified entitlement to a stable 0600 file and
+  pass its path as `AXP_ENTITLEMENT_FILE` on every hook (§14.8); rewrite on
+  renewal, remove on expiry, run `enable` after a renewal.
+- **Expiry is a disable, not an uninstall** (§14.6) — the same path your
+  disable switch takes, after `grace_days`. Tell the user once, then monthly.
+- **Import always works.** A file or paste goes through `verify_entitlement`
+  exactly like a refreshed one, then `store.put(ext_id, entitlement)`.
+
+Conformance: `pytest conformance/test_commerce.py` (implement the optional
+`verify_entitlement` adapter method). `docs/COMMERCE.md` covers the issuer
+and artifact-server side.
+
 ## Unmanaged installs — the on-ramp for everything else
 
 Most software will never carry a manifest. A host that refuses it outright

@@ -221,6 +221,124 @@ def test_sign_with_prev_key_produces_a_rotation_hosts_accept(tmp_path, example):
                      "-o", str(tmp_path / "unsigned.json")]) == 2
 
 
+def test_entitlement_cli_end_to_end(tmp_path, capsys):
+    """SPEC 14 through the CLI: an issuing key listed with its role, an
+    entitlement issued to a host key, verified against the directory, then
+    presented for the gated artifact and inspected as the server would."""
+    from axp import entitlements
+    issuing, host, manifest_key = tmp_path / "issuing.key", tmp_path / "host.key", tmp_path / "manifest.key"
+    assert cli.main(["keygen", "--out", str(issuing)]) == 0
+    issuing_pub = capsys.readouterr().out.strip()
+    assert cli.main(["keygen", "--out", str(host)]) == 0
+    holder = capsys.readouterr().out.strip()
+    assert cli.main(["keygen", "--out", str(manifest_key)]) == 0
+    manifest_pub = capsys.readouterr().out.strip()
+
+    keydir = tmp_path / "keys.json"
+    assert cli.main(["keydir", "--publisher", "ext.example.com", "--key", manifest_pub + "@paid-tool",
+                     "--entitlement-key", issuing_pub + "@paid-tool", "-o", str(keydir)]) == 0
+    capsys.readouterr()
+    doc = json.loads(keydir.read_text())
+    assert doc["keys"][1] == {"public_key": issuing_pub, "extensions": ["paid-tool"], "roles": ["entitlement"]}
+    assert cli.main(["keydir", "--publisher", "ext.example.com"]) == 2
+    capsys.readouterr()
+
+    ent = tmp_path / "entitlement.json"
+    assert cli.main(["entitlement", "issue", "--key", str(issuing), "--issuer", "ext.example.com",
+                     "--extension", "ext.example.com/paid-tool", "--holder", holder, "--plan", "pro",
+                     "--at", "2026-10-16T10:00:00Z", "--valid-days", "30", "--updates-days", "30",
+                     "--serial", "S-1", "-o", str(ent)]) == 0
+    assert "issued S-1" in capsys.readouterr().out
+    issued = json.loads(ent.read_text())
+    assert issued["valid_until"] == "2026-11-15T10:00:00Z" and issued["holder"] == holder
+
+    # Verify: valid now, grace a few days after, expired later; wrong holder refused.
+    base = ["entitlement", "verify", str(ent), "--keydir", str(keydir), "--holder", holder]
+    assert cli.main(base + ["--at", "2026-11-01T00:00:00Z"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "valid"
+    assert cli.main(base + ["--at", "2026-11-18T00:00:00Z"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "grace"
+    assert cli.main(base + ["--at", "2026-12-18T00:00:00Z"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "expired"
+    assert cli.main(["entitlement", "verify", str(ent), "--keydir", str(keydir), "--holder", manifest_pub]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "wrong_holder"
+    # The manifest key is not an issuing key: trusting only it refuses the entitlement.
+    assert cli.main(["entitlement", "verify", str(ent), "--issuer-key", manifest_pub, "--at", "2026-11-01T00:00:00Z"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "untrusted_key"
+    assert cli.main(["entitlement", "verify", str(ent), "--issuer-key", issuing_pub, "--at", "2026-11-01T00:00:00Z"]) == 0
+    capsys.readouterr()
+
+    # Present for the artifact, inspect as the artifact server.
+    audience = "https://ext.example.com/paid-tool-1.0.0.tar.gz"
+    assert cli.main(["entitlement", "present", str(ent), "--host-key", str(host), "--audience", audience,
+                     "--at", "2026-11-01T00:00:00Z"]) == 0
+    header = capsys.readouterr().out.strip()
+    assert header.startswith("Authorization: AXP-Entitlement ")
+    token_file = tmp_path / "token.txt"
+    token_file.write_text(header + "\n")
+    assert cli.main(["entitlement", "inspect", "@" + str(token_file), "--audience", audience,
+                     "--keydir", str(keydir), "--at", "2026-11-01T00:01:00Z"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["valid"] and report["holder"] == holder and report["entitlement"]["serial"] == "S-1"
+    assert cli.main(["entitlement", "inspect", header, "--audience", audience + "?x",
+                     "--keydir", str(keydir), "--at", "2026-11-01T00:01:00Z"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "malformed"
+    # Past its five minutes the token is dead even with a valid entitlement inside.
+    assert cli.main(["entitlement", "inspect", header, "--audience", audience,
+                     "--keydir", str(keydir), "--at", "2026-11-01T01:00:00Z"]) == 1
+    capsys.readouterr()
+
+    # A request without an entitlement (first purchase / renewal) is recognised as such.
+    refresh = "https://api.ext.example.com/axp/entitlements"
+    assert cli.main(["entitlement", "present", "--host-key", str(host), "--audience", refresh,
+                     "--extension", "ext.example.com/paid-tool", "--value-only"]) == 0
+    token = capsys.readouterr().out.strip()
+    assert cli.main(["entitlement", "inspect", token, "--audience", refresh, "--issuer-key", issuing_pub]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "no_entitlement"
+    assert cli.main(["entitlement", "present", "--host-key", str(host), "--audience", refresh]) == 1
+    assert "extension" in capsys.readouterr().err
+    assert entitlements.parse_authorization_header(token)["extension"] == "ext.example.com/paid-tool"
+
+
+def test_entitlement_verify_with_manifest_context(tmp_path, example, capsys):
+    """--manifest supplies the id and commerce.issuers; an entitlement from an
+    issuer the manifest does not name is refused before any directory is read,
+    and covers_release is reported for a valid one."""
+    from axp import entitlements, signing
+    issuing = signing.generate_private_key_pem()
+    host = signing.generate_private_key_pem()
+    example["commerce"] = {"entitlement": "required", "issuers": ["ext.example.com"]}
+    example["release"]["published_at"] = "2026-10-16T09:00:00Z"
+    example.pop("signature", None)
+    example["signing"] = {"public_key": signing.public_key_from_private(issuing), "key_id": "k", "next_key": None}
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(signing.sign_manifest(example, issuing)))
+    keydir = tmp_path / "keys.json"
+    keydir.write_text(json.dumps({"publisher": "ext.example.com", "keys": [
+        {"public_key": signing.public_key_from_private(issuing), "roles": ["entitlement"]}]}))
+
+    def issued(**kw):
+        path = tmp_path / "e.json"
+        path.write_text(json.dumps(entitlements.issue(
+            extension="ext.example.com/sample-memory", holder=entitlements.holder_from_private(host),
+            plan="pro", private_key_pem=issuing, issued_at="2026-10-01T00:00:00Z", **kw)))
+        return str(path)
+
+    assert cli.main(["entitlement", "verify", issued(issuer="ext.example.com", updates_until="2026-10-10T00:00:00Z"),
+                     "--manifest", str(manifest_path), "--keydir", str(keydir), "--at", "2026-10-16T12:00:00Z"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["valid"] and report["covers_release"] is False   # released after the update window
+    assert cli.main(["entitlement", "verify", issued(issuer="market.example"),
+                     "--manifest", str(manifest_path), "--keydir", str(keydir)]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "untrusted_issuer"
+    (tmp_path / "garbage.json").write_text(json.dumps({"kind": "agent-extension-entitlement"}))
+    assert cli.main(["entitlement", "verify", str(tmp_path / "garbage.json"), "--issuer-key", "ed25519:" + "A" * 43 + "="]) == 1
+    assert "extension" in capsys.readouterr().err
+    import pytest
+    with pytest.raises(SystemExit, match="ISO-8601"):
+        cli.main(["entitlement", "verify", issued(issuer="ext.example.com"), "--issuer-key", "ed25519:" + "A" * 43 + "=", "--at", "yesterday"])
+
+
 def test_verify_artifact_digest(tmp_path, example, capsys):
     from axp import signing
     pem = signing.generate_private_key_pem()

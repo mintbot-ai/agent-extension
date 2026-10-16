@@ -20,6 +20,17 @@ Host side::
     axp target agent-extension.json --runtime hermes --runtime posix
     axp canonicalize agent-extension.json > canonical.bin
 
+Commerce (SPEC 14) — issuer, host and artifact-server side::
+
+    axp keygen --out issuing.key                # an ONLINE entitlement key; list it with --entitlement-key
+    axp keydir --publisher ext.example.com --key ed25519:MANIFEST…@my-ext \
+        --entitlement-key ed25519:ISSUING…@my-ext -o agent-extension-keys.json
+    axp entitlement issue --key issuing.key --issuer ext.example.com --extension ext.example.com/my-ext \
+        --holder ed25519:HOST… --plan pro --valid-days 30 -o entitlement.json
+    axp entitlement verify entitlement.json --manifest agent-extension.json --holder ed25519:HOST…
+    axp entitlement present entitlement.json --host-key host.key --audience https://…/my-ext-1.0.0.tar.gz
+    axp entitlement inspect "AXP-Entitlement eyJ…" --audience https://…/my-ext-1.0.0.tar.gz --keydir keys.json
+
 Exit codes: 0 success, 1 validation/verification failure, 2 usage error.
 """
 
@@ -28,9 +39,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import __version__, jcs, manifest, publish, repository, signing
+from . import __version__, entitlements, jcs, manifest, publish, repository, signing
 
 
 def _read_key(path: str | None) -> bytes | None:
@@ -329,20 +341,34 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _keydir_entry(spec: str, *, roles: list[str] | None = None) -> dict:
+    """``ed25519:…[@name,name]`` → a key directory entry. Names may be bare
+    (the publisher's own extensions) or full ``<publisher>/<name>`` ids."""
+    # '@' separates the key from its extension names: base64 keys end in '='.
+    public_key, sep, names = spec.partition("@")
+    signing._raw_public_key(public_key)
+    entry: dict = {"public_key": public_key}
+    if sep and names:
+        entry["extensions"] = [n for n in names.split(",") if n]
+    if roles:
+        entry["roles"] = roles
+    return entry
+
+
 def _cmd_keydir(args: argparse.Namespace) -> int:
     keys = []
-    for spec in args.key:
-        # '@' separates the key from its extension names: base64 keys end in '='.
-        public_key, sep, names = spec.partition("@")
-        try:
-            signing._raw_public_key(public_key)
-        except signing.SigningError as exc:
-            print(f"axp: {exc}", file=sys.stderr)
-            return 1
-        entry = {"public_key": public_key}
-        if sep and names:
-            entry["extensions"] = [n for n in names.split(",") if n]
-        keys.append(entry)
+    try:
+        for spec in args.key or []:
+            keys.append(_keydir_entry(spec))
+        for spec in args.entitlement_key:
+            # SPEC 14.3: an issuing key is online and says so; it never signs manifests.
+            keys.append(_keydir_entry(spec, roles=[signing.ROLE_ENTITLEMENT]))
+    except signing.SigningError as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    if not keys and not args.revoked:
+        print("axp: keydir needs at least one --key, --entitlement-key or --revoked", file=sys.stderr)
+        return 2
     for public_key in args.revoked:
         keys.append({"public_key": public_key, "revoked": True})
     document = {"publisher": args.publisher, "keys": keys}
@@ -355,6 +381,171 @@ def _cmd_keydir(args: argparse.Namespace) -> int:
     else:
         sys.stdout.write(text)
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Commerce (SPEC 14): entitlements
+# ---------------------------------------------------------------------------
+
+def _parse_at(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    parsed = entitlements.parse_timestamp(value)
+    if parsed is None:
+        raise SystemExit(f"axp: {value!r} is not an ISO-8601 timestamp")
+    return parsed
+
+
+def _deadline(explicit: str | None, days: int | None, *, now: datetime) -> str | None:
+    if explicit:
+        return explicit
+    if days is not None:
+        return entitlements.format_timestamp(now + timedelta(days=days))
+    return None
+
+
+def _cmd_entitlement_issue(args: argparse.Namespace) -> int:
+    now = _parse_at(args.at) or datetime.now(timezone.utc)
+    try:
+        document = entitlements.issue(
+            extension=args.extension, holder=args.holder, plan=args.plan, issuer=args.issuer,
+            private_key_pem=Path(args.key).read_bytes(), key_id=args.key_id, issued_at=now,
+            valid_until=_deadline(args.valid_until, args.valid_days, now=now),
+            updates_until=_deadline(args.updates_until, args.updates_days, now=now),
+            serial=args.serial,
+        )
+    except (entitlements.EntitlementError, signing.SigningError, OSError) as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        print(f"issued {document['serial']} to {document['holder']}: {args.output}")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def _issuer_keys(args: argparse.Namespace, *, issuer: str, extension: str) -> list[str]:
+    """The entitlement-role keys the caller trusts for ``issuer``: explicit
+    ``--issuer-key`` values, a ``--keydir`` file/URL, or (default) the
+    issuer's own well-known directory — the one hosts read (SPEC 14.3)."""
+    if args.issuer_key:
+        return list(args.issuer_key)
+    source = args.keydir or signing.key_directory_url(issuer)
+    try:
+        return signing.parse_key_directory(_load_key_directory(source), publisher=issuer,
+                                           name=extension, role=signing.ROLE_ENTITLEMENT)
+    except signing.SigningError as exc:
+        raise SystemExit(f"axp: key directory {source}: {exc}")
+
+
+def _commerce_context(args: argparse.Namespace, document: dict) -> tuple[str, list[str] | None]:
+    """``(extension, issuers)`` from ``--manifest`` when given (the manifest's
+    id and commerce.issuers), else from ``--extension`` / the document."""
+    if args.manifest:
+        data = _load(args.manifest)
+        try:
+            summary = manifest.validate(data)
+        except manifest.ManifestError as exc:
+            raise SystemExit(f"axp: manifest: {exc}")
+        commerce = summary.get("commerce") or {}
+        return summary["ext_id"], commerce.get("issuers") or [summary["publisher"]]
+    return args.extension or str(document.get("extension") or ""), None
+
+
+def _report(verdict: entitlements.Verdict, extra: dict | None = None) -> int:
+    report = {"valid": verdict.valid, "status": verdict.status, "reason": verdict.reason, **(extra or {})}
+    if verdict.entitlement is not None:
+        report["entitlement"] = {k: verdict.entitlement.get(k) for k in
+                                 ("extension", "holder", "plan", "serial", "issuer",
+                                  "issued_at", "valid_until", "updates_until")}
+    print(json.dumps(report, indent=2))
+    return 0 if verdict.valid else 1
+
+
+def _cmd_entitlement_verify(args: argparse.Namespace) -> int:
+    document = _load(args.entitlement)
+    try:
+        entitlements.validate_entitlement(document)
+    except entitlements.EntitlementError as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    extension, issuers = _commerce_context(args, document)
+    issuer = str(document["issuer"])
+    if issuers is not None and issuer not in issuers:
+        # Refused before any fetch: never ask a stranger's directory to vouch.
+        return _report(entitlements.Verdict(False, "untrusted_issuer",
+                                            f"{issuer} is not an issuer the manifest names", document))
+    verdict = entitlements.verify_entitlement(
+        document, extension=extension, holder=args.holder,
+        issuer_keys=_issuer_keys(args, issuer=issuer, extension=extension), issuers=issuers,
+        now=_parse_at(args.at), grace_days=args.grace_days,
+    )
+    extra = {}
+    if args.manifest and verdict.valid:
+        extra["covers_release"] = entitlements.covers_release(document, _load(args.manifest))
+    return _report(verdict, extra)
+
+
+def _cmd_entitlement_present(args: argparse.Namespace) -> int:
+    try:
+        presentation = entitlements.make_presentation(
+            host_private_key_pem=Path(args.host_key).read_bytes(), audience=args.audience,
+            entitlement=_load(args.entitlement) if args.entitlement else None,
+            extension=args.extension, now=_parse_at(args.at), ttl_seconds=args.ttl,
+        )
+        header = entitlements.authorization_header(presentation)
+    except (entitlements.EntitlementError, signing.SigningError, OSError) as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    print(header if args.value_only else f"Authorization: {header}")
+    return 0
+
+
+def _cmd_entitlement_inspect(args: argparse.Namespace) -> int:
+    """What an artifact server or issuer does with an incoming request."""
+    token = args.token
+    if token.startswith("@"):
+        try:
+            token = Path(token[1:]).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise SystemExit(f"axp: cannot read {token[1:]}: {exc}")
+    token = token.removeprefix("Authorization:").strip()
+    now = _parse_at(args.at)
+    try:
+        presentation = entitlements.verify_presentation(token, audience=args.audience, now=now)
+    except entitlements.EntitlementError as exc:
+        return _report(entitlements.Verdict(False, "malformed", f"presentation: {exc}"))
+    extension, issuers = _commerce_context(args, presentation)
+    extra = {"holder": presentation["holder"], "presented_for": presentation["extension"]}
+    entitlement = presentation.get("entitlement")
+    if entitlement is None:
+        return _report(entitlements.Verdict(False, "no_entitlement", "presentation carries no entitlement"), extra)
+    issuer = str(entitlement["issuer"])
+    if issuers is not None and issuer not in issuers:
+        return _report(entitlements.Verdict(False, "untrusted_issuer",
+                                            f"{issuer} is not an issuer the manifest names", entitlement), extra)
+    verdict = entitlements.verify_presented_entitlement(
+        presentation, audience=args.audience, extension=extension,
+        issuer_keys=_issuer_keys(args, issuer=issuer, extension=extension), issuers=issuers,
+        now=now, grace_days=args.grace_days,
+    )
+    return _report(verdict, extra)
+
+
+def _add_trust_options(p: argparse.ArgumentParser) -> None:
+    """Where the entitlement-role keys come from (SPEC 14.3)."""
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--keydir", help="the issuer's key directory, file or https URL "
+                                        "(default: the issuer's own well-known directory)")
+    group.add_argument("--issuer-key", action="append", metavar="ed25519:...",
+                       help="trust exactly this issuing key (repeatable; skips the directory)")
+    p.add_argument("--manifest", help="the extension's manifest: supplies the id and commerce.issuers")
+    p.add_argument("--extension", help="<publisher>/<name> when no --manifest is given (default: the document's)")
+    p.add_argument("--grace-days", type=int, default=entitlements.DEFAULT_GRACE_DAYS,
+                   help=f"days past valid_until still accepted as 'grace' (default {entitlements.DEFAULT_GRACE_DAYS})")
+    p.add_argument("--at", metavar="ISO", help="evaluate at this time instead of now")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -445,14 +636,61 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", help="save the resolved manifest here")
     p.set_defaults(func=_cmd_resolve)
 
-    p = sub.add_parser("keydir", help="write a publisher key directory (SPEC 8.5) from public keys")
+    p = sub.add_parser("keydir", help="write a publisher key directory (SPEC 8.5 / 14.3) from public keys")
     p.add_argument("--publisher", required=True)
-    p.add_argument("--key", action="append", required=True, metavar="ed25519:...[@NAME,NAME]",
-                   help="a public key, optionally restricted to extension names after '@' (repeatable)")
+    p.add_argument("--key", action="append", default=[], metavar="ed25519:...[@NAME,NAME]",
+                   help="a manifest signing key, optionally restricted to extension names after '@' (repeatable)")
+    p.add_argument("--entitlement-key", action="append", default=[], metavar="ed25519:...[@NAME,NAME]",
+                   help="an entitlement issuing key (SPEC 14.3; roles: [entitlement]); names may be full "
+                        "<publisher>/<name> ids when issuing for other publishers (repeatable)")
     p.add_argument("--revoked", action="append", default=[], metavar="ed25519:...",
                    help="a key to list as revoked (repeatable)")
     p.add_argument("-o", "--output", help="write here (default: stdout)")
     p.set_defaults(func=_cmd_keydir)
+
+    ent = sub.add_parser("entitlement", help="commerce (SPEC 14): issue, verify and present entitlements")
+    ent_sub = ent.add_subparsers(dest="entitlement_command", required=True)
+
+    p = ent_sub.add_parser("issue", help="sign an entitlement for one host (the issuer side)")
+    p.add_argument("--key", required=True, help="the issuing key PEM (list its public form with keydir --entitlement-key)")
+    p.add_argument("--issuer", required=True, help="DNS name whose key directory lists the issuing key")
+    p.add_argument("--extension", required=True, help="<publisher>/<name>")
+    p.add_argument("--holder", required=True, help="the host key, ed25519:... (what the host sent to checkout)")
+    p.add_argument("--plan", required=True, help="plan id from the manifest's commerce.plans")
+    p.add_argument("--key-id", help="human label of the issuing key")
+    p.add_argument("--serial", help="issuer's unique id for this entitlement (default: random)")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--valid-until", metavar="ISO", help="end of use (omit both for perpetual use)")
+    group.add_argument("--valid-days", type=int, help="end of use, days from now (a subscription period / trial)")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--updates-until", metavar="ISO", help="last release date covered (omit both for all updates)")
+    group.add_argument("--updates-days", type=int, help="update window, days from now")
+    p.add_argument("--at", metavar="ISO", help="issue as of this time instead of now")
+    p.add_argument("-o", "--output", help="write here (default: stdout)")
+    p.set_defaults(func=_cmd_entitlement_issue)
+
+    p = ent_sub.add_parser("verify", help="check an entitlement as a host would (SPEC 14.3)")
+    p.add_argument("entitlement", help="the entitlement document")
+    p.add_argument("--holder", help="this host's key; omitted = do not check the binding")
+    _add_trust_options(p)
+    p.set_defaults(func=_cmd_entitlement_verify)
+
+    p = ent_sub.add_parser("present", help="the Authorization header a host sends (SPEC 14.4 / 14.5)")
+    p.add_argument("entitlement", nargs="?", help="the entitlement to present; omit to request one from an issuer")
+    p.add_argument("--host-key", required=True, help="the host key PEM (axp keygen)")
+    p.add_argument("--audience", required=True, help="the exact https URL the request goes to")
+    p.add_argument("--extension", help="<publisher>/<name> (required when no entitlement is presented)")
+    p.add_argument("--ttl", type=int, default=entitlements.DEFAULT_PRESENTATION_TTL_SECONDS,
+                   help=f"lifetime in seconds (default {entitlements.DEFAULT_PRESENTATION_TTL_SECONDS})")
+    p.add_argument("--at", metavar="ISO", help="issue as of this time instead of now")
+    p.add_argument("--value-only", action="store_true", help="print only the header value")
+    p.set_defaults(func=_cmd_entitlement_present)
+
+    p = ent_sub.add_parser("inspect", help="check a presented header as an artifact server or issuer would")
+    p.add_argument("token", help="the Authorization header value, or @FILE holding it")
+    p.add_argument("--audience", required=True, help="the exact https URL that received it")
+    _add_trust_options(p)
+    p.set_defaults(func=_cmd_entitlement_inspect)
     return parser
 
 

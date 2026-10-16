@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-extension.org/schema/agent-extension-entitlement-0.5.json",
+  "title": "AXP entitlement",
+  "description": "An issuer's signed statement that one host (the holder, identified by its ed25519 host key) may use an extension (SPEC section 14.2). The only commerce object AXP defines: how the purchase happened is outside the protocol. Signed like a manifest — ed25519 over the JCS canonicalization with `signature` removed — by a key the issuer's key directory lists with role `entitlement`. Unknown fields are ignored.",
+  "type": "object",
+  "required": ["kind", "extension", "holder", "plan", "serial", "issuer", "issued_at", "valid_until", "updates_until", "signing", "signature"],
+  "additionalProperties": true,
+  "properties": {
+    "kind": { "type": "string", "const": "agent-extension-entitlement" },
+    "spec_version": { "type": "string", "pattern": "^0\\.[0-9]+$" },
+    "extension": { "type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9][a-z0-9_-]*$", "description": "<publisher>/<name> the entitlement is for" },
+    "holder": { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/]{43}=$", "description": "the host key (public form) this entitlement is bound to; the host proves possession in every presentation" },
+    "plan": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "description": "the commerce.plans[].id bought" },
+    "serial": { "type": "string", "minLength": 1, "description": "issuer-unique id; what renewal and revocation refer to" },
+    "issuer": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", "description": "DNS name whose key directory lists signing.public_key with role entitlement; must be one of the manifest's commerce.issuers" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "valid_until": { "anyOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }], "description": "end of the right to use; null = perpetual" },
+    "updates_until": { "anyOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }], "description": "releases published after this are not covered; null = every release" },
+    "signing": {
+      "type": "object",
+      "required": ["public_key"],
+      "additionalProperties": true,
+      "properties": {
+        "public_key": { "type": "string", "pattern": "^ed25519:[A-Za-z0-9+/]{43}=$", "description": "the issuing key (raw 32 bytes, base64)" },
+        "key_id": { "type": "string" }
+      }
+    },
+    "signature": { "type": "string", "description": "base64 ed25519 signature over the canonical (JCS) document with signature removed" }
+  }
+}

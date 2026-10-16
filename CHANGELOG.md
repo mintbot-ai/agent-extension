@@ -2,6 +2,32 @@
 
 ## unreleased — draft 0.5
 
+- Commerce (SPEC 14, `docs/COMMERCE.md`): an extension may be sold without
+  AXP touching payment. The optional `commerce` block declares whether an
+  *entitlement* is `required` or `optional`, the plans for sale (one-time,
+  subscription, trial; a one-time plan with `updates_months` is the
+  perpetual-licence-plus-update-window model), a `checkout_url`, an issuer
+  `refresh_url` and the `issuers` whose keys may sign. The entitlement is a
+  small JCS + ed25519 document bound to the host's own key (`holder`) with
+  two dates, `valid_until` and `updates_until`; the key directory gains
+  `roles` so the online issuing key is listed with `["entitlement"]` and can
+  never move a manifest pin (an entry without `roles` means manifest only,
+  unchanged). `targets[].delivery.auth: {scheme: entitlement}` gates the
+  artifact: the manifest stays public, the bytes are released only against
+  an `Authorization: AXP-Entitlement <token>` header carrying a short-lived,
+  audience-bound *presentation* signed by the host key — the same header a
+  host POSTs to `refresh_url` to obtain or renew an entitlement. Hosts hand
+  hooks a stable `AXP_ENTITLEMENT_FILE`, disable (never uninstall) after a
+  grace window, and withhold releases published after `updates_until`.
+  Reference: `axp.entitlements` (issue / verify / time status /
+  `covers_release` / presentations / `EntitlementStore`),
+  `parse_key_directory(role=…)`, `validate()` reports `commerce`, the CLI
+  gains `axp entitlement issue | verify | present | inspect` and `axp keydir
+  --entitlement-key`, `schema/agent-extension-entitlement.schema.json`, the
+  signed `examples/paid-tool/` fixture (manifest, key directory with both
+  roles, entitlement, public example keys) and `conformance/test_commerce.py`
+  behind the optional `verify_entitlement` adapter method. Open questions
+  moved to SPEC 15.
 - Endpoint access gains *Direct access*, a host option: the owner may publish
   one bearer-authenticated endpoint on the host's own HTTPS origin so a client
   reaches it without a tunnel. Off by default, an explicit per-endpoint owner

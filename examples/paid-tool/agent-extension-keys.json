@@ -1,0 +1,20 @@
+{
+  "publisher": "ext.example.com",
+  "keys": [
+    {
+      "public_key": "ed25519:4KMOmBkg4PJbGclJHEsthLEOuQyyNyckkr5qraEqglE=",
+      "extensions": [
+        "paid-tool"
+      ]
+    },
+    {
+      "public_key": "ed25519:Clk99LIQr6WKNyvsiz5zGQtRei7nJL5dpCpMlj8Egos=",
+      "extensions": [
+        "paid-tool"
+      ],
+      "roles": [
+        "entitlement"
+      ]
+    }
+  ]
+}

@@ -284,6 +284,86 @@ def test_signing_rejections(example):
         _validate(example)
 
 
+# --- commerce (SPEC 14) -------------------------------------------------------
+
+def _commerce(**overrides):
+    block = {
+        "entitlement": "required",
+        "plans": [
+            {"id": "pro", "kind": "subscription", "period": "month", "price": {"amount": 500, "currency": "EUR"}},
+            {"id": "lifetime", "kind": "one_time", "price": {"amount": 4900, "currency": "EUR"}, "updates_months": 12},
+            {"id": "trial", "kind": "trial", "days": 14},
+        ],
+        "checkout_url": "https://ext.example.com/buy",
+        "refresh_url": "https://api.ext.example.com/axp/entitlements",
+        "issuers": ["ext.example.com", "market.example"],
+        "grace_days": 7,
+    }
+    block.update(overrides)
+    return block
+
+
+@pytest.mark.parametrize("commerce,fragment", [
+    (["pro"], "commerce: must be an object"),
+    (_commerce(entitlement=None), "commerce.entitlement: is required"),
+    (_commerce(entitlement="paid"), "commerce.entitlement"),
+    (_commerce(plans={"pro": {}}), "commerce.plans: must be a list"),
+    (_commerce(plans=["pro"]), "commerce.plans\\[0\\]: must be an object"),
+    (_commerce(plans=[{"kind": "one_time"}]), "plans\\[0\\].id"),
+    (_commerce(plans=[{"id": "Pro", "kind": "one_time"}]), "plans\\[0\\].id"),
+    (_commerce(plans=[{"id": "pro"}]), "plans\\[0\\].kind"),
+    (_commerce(plans=[{"id": "pro", "kind": "subscription"}]), "plans\\[0\\].period: is required"),
+    (_commerce(plans=[{"id": "pro", "kind": "subscription", "period": "week"}]), "plans\\[0\\].period"),
+    (_commerce(plans=[{"id": "trial", "kind": "trial"}]), "plans\\[0\\].days: is required"),
+    (_commerce(plans=[{"id": "trial", "kind": "trial", "days": 0}]), "positive number of days"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time", "price": {"amount": 5.0, "currency": "EUR"}}]), "price.amount"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time", "price": {"amount": 500}}]), "price.currency"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time", "price": {"amount": 500, "currency": "eur"}}]), "price.currency"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time", "updates_months": -1}]), "updates_months"),
+    (_commerce(plans=[{"id": "x", "kind": "one_time"}, {"id": "x", "kind": "trial", "days": 1}]), "declared twice"),
+    (_commerce(checkout_url="http://ext.example.com/buy"), "commerce.checkout_url"),
+    (_commerce(refresh_url="ftp://x"), "commerce.refresh_url"),
+    (_commerce(issuers="ext.example.com"), "commerce.issuers"),
+    (_commerce(issuers=["Ext.Example.com"]), "commerce.issuers"),
+    (_commerce(grace_days="7"), "commerce.grace_days"),
+])
+def test_commerce_rejections(example, commerce, fragment):
+    example["commerce"] = commerce
+    with pytest.raises(manifest.ManifestError, match=fragment):
+        _validate(example)
+
+
+def test_commerce_summary_and_defaults(example):
+    assert _validate(example)["commerce"] is None
+    example["commerce"] = _commerce()
+    summary = _validate(example)["commerce"]
+    assert summary == {"entitlement": "required", "plans": ["pro", "lifetime", "trial"],
+                       "issuers": ["ext.example.com", "market.example"], "gated_delivery": False}
+    # Issuers default to the publisher; plans and URLs are optional; an unknown
+    # plan kind is shown as-is, never refused (SPEC 2.4).
+    example["commerce"] = {"entitlement": "optional", "plans": [{"id": "team", "kind": "x-seat-based", "seats": 5}]}
+    summary = _validate(example)["commerce"]
+    assert summary == {"entitlement": "optional", "plans": ["team"],
+                       "issuers": ["ext.example.com"], "gated_delivery": False}
+
+
+def test_gated_delivery_needs_a_commerce_block(example):
+    example["targets"][0]["delivery"]["auth"] = {"scheme": "entitlement"}
+    with pytest.raises(manifest.ManifestError, match="needs a commerce block"):
+        _validate(example)
+    example["commerce"] = {"entitlement": "required"}
+    assert _validate(example)["commerce"]["gated_delivery"] is True
+    # Unknown auth schemes are ignored; a malformed auth object is not.
+    example["targets"][0]["delivery"]["auth"] = {"scheme": "x-mtls"}
+    assert _validate(example)["commerce"]["gated_delivery"] is False
+    example["targets"][0]["delivery"]["auth"] = {}
+    with pytest.raises(manifest.ManifestError, match="delivery.auth.scheme"):
+        _validate(example)
+    example["targets"][0]["delivery"]["auth"] = "entitlement"
+    with pytest.raises(manifest.ManifestError, match="delivery.auth"):
+        _validate(example)
+
+
 # --- targets ------------------------------------------------------------------
 
 @pytest.mark.parametrize("mutate,fragment", [

@@ -73,6 +73,16 @@ ENDPOINT_AUTH_TOKEN_SCOPE = "state"
 # Closed set (SPEC §2.4): an unknown permission key is a refusal, because
 # ignoring it could under-warn the user.
 PERMISSION_KEYS = ("network_egress", "network_ingress", "filesystem", "secrets", "root", "reason")
+# Commerce (SPEC section 14). ``commerce.entitlement`` says whether the host
+# needs a valid entitlement before it installs; plans are display only.
+ENTITLEMENT_MODES = ("required", "optional")
+PLAN_KINDS = ("one_time", "subscription", "trial")
+SUBSCRIPTION_PERIODS = ("month", "year")
+# ``targets[].delivery.auth.scheme`` values this library interprets; an
+# unknown scheme is ignored (section 2.4) and the plain fetch then reports
+# whatever the artifact server answers.
+DELIVERY_AUTH_SCHEMES = ("entitlement",)
+DELIVERY_AUTH_ENTITLEMENT = "entitlement"
 
 # Grammar — byte-identical to schema/agent-extension.schema.json patterns.
 SPEC_VERSION_RE = re.compile(r"^0\.[0-9]+$")
@@ -92,6 +102,7 @@ EGRESS_RE = re.compile(r"^(\*|(\*\.)?[A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]{1,5})?$")
 INGRESS_RE = re.compile(r"^([A-Za-z0-9.:\[\]-]+:)?[0-9]{1,5}/(tcp|udp)$")
 FS_SCOPE_RE = re.compile(r"^([a-z][a-z0-9_-]*:)?[a-z][a-z0-9_-]*:(r|rw)$")
 VERSION_RANGE_RE = re.compile(r"^(\s*(>=|<=|>|<|=|\^|~)?[0-9]+(\.[0-9A-Za-z-]+)*\s*)+$")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")  # ISO 4217 code; amounts are integers in minor units
 
 
 class ManifestError(ValueError):
@@ -433,7 +444,83 @@ def _check_signing(data: dict) -> bool:
     return True
 
 
-def _check_target(entry: Any, index: int) -> str:
+def _non_negative_int(parent: dict, key: str, path: str, *, required: bool = False) -> int | None:
+    value = parent.get(key)
+    if value is None:
+        if required:
+            _fail(path + key, "is required")
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        _fail(path + key, "must be a non-negative integer")
+    return value
+
+
+def _check_plan(entry: Any, index: int) -> str:
+    """One ``commerce.plans[]`` entry (SPEC section 14.1). Plans are shown to
+    the user, never computed with: an unknown ``kind`` is kept as-is and not
+    interpreted (section 2.4); a known kind has its fields checked."""
+    path = f"commerce.plans[{index}]."
+    if not isinstance(entry, dict):
+        _fail(f"commerce.plans[{index}]", "must be an object")
+    plan_id = _string(entry, "id", path, required=True, pattern=NAME_RE, expect="[a-z0-9][a-z0-9_-]*")
+    assert plan_id is not None
+    kind = _string(entry, "kind", path, required=True)
+    _string(entry, "title", path)
+    price = _opt_dict(entry, "price", path)
+    if price is not None:
+        _non_negative_int(price, "amount", path + "price.", required=True)
+        _string(price, "currency", path + "price.", required=True, pattern=CURRENCY_RE,
+                expect="an ISO 4217 code such as EUR")
+    _non_negative_int(entry, "updates_months", path)
+    if kind == "subscription":
+        if _enum(entry, "period", path, SUBSCRIPTION_PERIODS) is None:
+            _fail(path + "period", f"is required for a subscription ({list(SUBSCRIPTION_PERIODS)})")
+    elif kind == "trial":
+        if not _non_negative_int(entry, "days", path, required=True):
+            _fail(path + "days", "must be a positive number of days")
+    return plan_id
+
+
+def _check_commerce(data: dict, publisher: str) -> dict | None:
+    """The optional ``commerce`` block (SPEC section 14.1). Returns the
+    summary a host needs — the entitlement mode, the plan ids and the
+    issuers whose entitlement keys are trusted — or None when absent."""
+    block = _opt_dict(data, "commerce", "")
+    if block is None:
+        return None
+    mode = _enum(block, "entitlement", "commerce.", ENTITLEMENT_MODES)
+    if mode is None:
+        _fail("commerce.entitlement", f"is required ({list(ENTITLEMENT_MODES)})")
+    plans = block.get("plans")
+    plan_ids: list[str] = []
+    if plans is not None:
+        if not isinstance(plans, list):
+            _fail("commerce.plans", "must be a list")
+        for index, entry in enumerate(plans):
+            plan_id = _check_plan(entry, index)
+            if plan_id in plan_ids:
+                _fail(f"commerce.plans[{index}].id", f"{plan_id!r} is declared twice")
+            plan_ids.append(plan_id)
+    _https_url(block, "checkout_url", "commerce.")
+    _https_url(block, "refresh_url", "commerce.")
+    issuers = _string_list(block, "issuers", "commerce.", pattern=PUBLISHER_RE,
+                           expect="a lowercase DNS name such as ext.example.com")
+    _non_negative_int(block, "grace_days", "commerce.")
+    return {"entitlement": mode, "plans": plan_ids, "issuers": issuers or [publisher]}
+
+
+def _check_delivery_auth(delivery: dict, path: str) -> bool:
+    """``delivery.auth`` (SPEC section 14.4): how the host authenticates the
+    artifact fetch. True when the artifact is entitlement-gated; an unknown
+    scheme is ignored (section 2.4)."""
+    auth = _opt_dict(delivery, "auth", path)
+    if auth is None:
+        return False
+    scheme = _string(auth, "scheme", path + "auth.", required=True)
+    return scheme == DELIVERY_AUTH_ENTITLEMENT
+
+
+def _check_target(entry: Any, index: int) -> tuple[str, bool]:
     if not isinstance(entry, dict):
         _fail(f"targets[{index}]", "must be an object")
     path = f"targets[{index}]."
@@ -446,6 +533,7 @@ def _check_target(entry: Any, index: int) -> str:
 
     delivery = _req_dict(entry, "delivery", path)
     method = _string(delivery, "method", path + "delivery.", required=True)
+    gated = _check_delivery_auth(delivery, path + "delivery.")
     if method == DELIVERY_ARCHIVE:
         _https_url(delivery, "url", path + "delivery.", required=True)
         _sha256(delivery, "sha256", path + "delivery.")
@@ -472,7 +560,7 @@ def _check_target(entry: Any, index: int) -> str:
         for key, value in component_map.items():
             if not isinstance(value, (str, dict)):
                 _fail(path + f"component_map.{key}", "must be a string or an object")
-    return runtime
+    return runtime, gated
 
 
 # ---------------------------------------------------------------------------
@@ -485,7 +573,9 @@ def validate(data: Any, *, origin: str | None = None) -> dict:
     ``origin`` is the registrable domain the manifest was fetched from, used
     only to derive a missing v0.2 ``identity.publisher`` (SPEC §13).
     Returns a summary: ``{ext_id, publisher, publisher_derived, name,
-    version, channel, signed, runtimes, provides}``.
+    version, channel, signed, runtimes, provides, commerce}`` — ``commerce``
+    is ``{entitlement, plans, issuers, gated_delivery}`` (SPEC section 14)
+    or None for an extension that sells nothing.
     """
     if not is_axp_manifest(data):
         raise ManifestError(f"kind: must be {AXP_KIND!r}")
@@ -502,11 +592,21 @@ def validate(data: Any, *, origin: str | None = None) -> dict:
     channel = _check_release(data)
     _check_updates(data)
     signed = _check_signing(data)
+    commerce = _check_commerce(data, identity["publisher"])
 
     targets = data.get("targets")
     if not isinstance(targets, list) or not targets:
         _fail("targets", "must be a non-empty list")
-    runtimes = [_check_target(entry, index) for index, entry in enumerate(targets)]
+    checked = [_check_target(entry, index) for index, entry in enumerate(targets)]
+    runtimes = [runtime for runtime, _gated in checked]
+    gated = any(gated for _runtime, gated in checked)
+    if gated:
+        if commerce is None:
+            # A host could not obtain what the artifact server will demand.
+            _fail("targets[].delivery.auth", "scheme 'entitlement' needs a commerce block (SPEC section 14)")
+        commerce["gated_delivery"] = True
+    elif commerce is not None:
+        commerce["gated_delivery"] = False
 
     return {
         **identity,
@@ -514,6 +614,7 @@ def validate(data: Any, *, origin: str | None = None) -> dict:
         "signed": signed,
         "runtimes": runtimes,
         "provides": provides,
+        "commerce": commerce,
     }
 
 

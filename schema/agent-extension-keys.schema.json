@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-extension.org/schema/agent-extension-keys-0.5.json",
   "title": "AXP publisher key directory",
-  "description": "Served at https://<publisher>/.well-known/agent-extension-keys.json (SPEC section 8.5): the keys a publisher currently signs with. Hosts consult it when a manifest's signing key differs from the pinned one (rotation must move to a listed key; a listed new key with the pinned key delisted is a lost-key recovery that needs the user's explicit consent) and may consult it on first use (strict mode). Unknown fields are ignored.",
+  "description": "Served at https://<publisher>/.well-known/agent-extension-keys.json (SPEC section 8.5): the keys a publisher currently signs with. Hosts consult it when a manifest's signing key differs from the pinned one (rotation must move to a listed key; a listed new key with the pinned key delisted is a lost-key recovery that needs the user's explicit consent) and may consult it on first use (strict mode). With roles (section 14.3) it also names the online keys that sign entitlements; an entry without roles signs manifests only. Unknown fields are ignored.",
   "type": "object",
   "required": [
     "keys"
@@ -34,9 +34,16 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              "pattern": "^([a-z0-9.-]+/)?[a-z0-9][a-z0-9_-]*$"
             },
-            "description": "Restrict this key to these extension names; absent = every extension of the publisher."
+            "description": "Restrict this key to these extensions: bare names are the publisher's own, full <publisher>/<name> ids may name other publishers' extensions this key issues entitlements for (section 14.3); absent = every extension."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What this key signs: manifest and/or entitlement (section 14.3). Absent = manifest only, so existing directories keep their meaning. An entitlement key is held online by the issuing service; listing it without the manifest role is what keeps a stolen issuing key from ever moving a host's pin."
           },
           "revoked": {
             "type": "boolean",

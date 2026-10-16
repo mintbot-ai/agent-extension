@@ -10,9 +10,10 @@
 > precise tracked-channel rule (§7.2), freshness guidance that does not
 > nag (§7.4), pinned environment semantics (§6.2), and the consent ratchet
 > for updates (§7.6). Runtime specifics live in [`docs/runtimes/`](docs/runtimes/).
-> v0.5 adds optional isolated panel views (§4.2.1) and managed-service
-> enable/disable hooks (§6.5). Field names may still change before v1.0;
-> see §13 for migrations.
+> v0.5 adds optional isolated panel views (§4.2.1), managed-service
+> enable/disable hooks (§6.5) and commerce: signed entitlements, key roles
+> and entitlement-gated artifacts, without any payment handling (§14).
+> Field names may still change before v1.0; see §13 for migrations.
 
 ## 1. Purpose
 
@@ -154,6 +155,8 @@ as schemas or prompt fragments belong in the artifact, referenced by path.
   "updates":     { … },   // §7.1 — where newer versions are found
   "signing":     { … },   // §8   — publisher key(s), rotation
   "signature":   "…",     // §8.2 — ed25519 sig over the canonical manifest
+
+  "commerce":    { … },   // §14  — optional: the extension is sold (entitlements, plans, gated delivery)
 
   "targets":     [ … ]    // §5   — LAYER 2: concrete per-runtime install recipes
 }
@@ -717,6 +720,7 @@ them are set (§10), using the listed defaults.
 | `AXP_CONFIG_FILE`     | install, upgrade | path to a 0600 **dotenv-format** file with the user's config values incl. secrets (§6.3); unset = use defaults / prompt |
 | `AXP_PURGE`           | uninstall    | `1` = also delete `AXP_STATE_DIR`; default `0` (keep user data)  |
 | `AXP_NONINTERACTIVE`  | all          | `1` = never prompt (host-driven run); default unset (may prompt on a TTY) |
+| `AXP_ENTITLEMENT_FILE` | all, while an entitlement is held | the current entitlement document (§14.8): a **stable** 0600 JSON file rewritten on renewal and removed on expiry; unset = no entitlement held |
 
 Hosts MAY add `AXP_<RUNTIME>_*` variables described in their runtime profile
 (e.g. `AXP_HERMES_HOME`). Scripts MUST NOT require them unless the target is
@@ -955,10 +959,16 @@ A publisher SHOULD serve
   "keys": [
     { "public_key": "ed25519:…", "key_id": "graph-memory-2026",
       "extensions": ["graph-memory"],   // optional: restrict to these names
+      "roles": ["manifest"],            // optional: what the key signs; absent = manifest only (§14.3)
       "revoked": false }
   ]
 }
 ```
+
+Every rule in this section concerns keys in the `manifest` role — an entry
+without `roles`, or one listing it. Keys listed only with the `entitlement`
+role (§14.3) are not manifest keys: they never satisfy a rotation, a
+recovery or a first-use check, however genuinely the publisher lists them.
 
 A Trusted host SHOULD fetch it (HTTPS, same SSRF rules as any fetch) whenever
 a manifest's key differs from the pinned key, and then:
@@ -1043,6 +1053,14 @@ ones before it.
 | **Managed**   | resolve all three `updates.source` kinds; track the channel as host state (§7.2); per-extension policy; monotonic apply with `upgrade` + `AXP_FROM_VERSION`; the consent ratchet (§7.6); run `health` after install/upgrade and on a schedule; evaluate `runtime_version` and `requires.extensions` with the §4.3 grammar and refuse when a hard dependency is missing, naming it. |
 | **Sandboxed** | apply at least the `advisory` tier to lifecycle hooks derived from `permissions` (egress allow-list incl. resolvers and the publisher's hosts; read-only tree except declared scopes, install prefix, state/cache); report downgrades honestly; contain the runtime components the host launches itself (`services`, stdio `mcp_servers`) with the same derived surface and report them `enforced`; in-process components stay `advisory` unless the runtime can isolate them. |
 
+**Commerce** (§14) is an optional capability a host MAY add on top of
+Trusted or higher, not a profile: hold a host key, verify entitlements
+against the issuer directory with the `entitlement` role, support import and
+SHOULD support checkout + refresh, fetch gated artifacts with a
+presentation, hand `AXP_ENTITLEMENT_FILE` to hooks, disable on expiry after
+the grace window, and honour `updates_until`. A host that advertises it
+SHOULD pass `conformance/test_commerce.py`.
+
 A conformance test-suite lives in `conformance/` (see repo README); a host
 claiming a profile SHOULD pass it.
 
@@ -1073,6 +1091,17 @@ views ignore their declarations and MUST NOT expose them.
 settings sections ignore it, and pre-0.5 validators skip it as an unknown
 component type (§2.4). *Direct access* (§4.2) is a host option that no
 manifest field controls: existing manifests and hosts are unaffected.
+
+Commerce (§14) is additive: the optional top-level `commerce` block,
+`targets[].delivery.auth`, the key directory's `roles` and the
+`AXP_ENTITLEMENT_FILE` variable are all ignored by hosts that predate them,
+and a key directory entry without `roles` means exactly what it meant
+before. The one consequence a publisher must know: a pre-commerce host
+installs a `commerce.entitlement: required` extension without any
+entitlement, and the only thing that stops it is an entitlement-gated
+artifact (§14.4), whose fetch such a host attempts plainly and sees refused
+with the server's status. Hosts MUST NOT strip `delivery.auth` from a
+signed manifest.
 
 Activation hooks require a host upgrade to 0.5 (or an explicit backport of
 the 0.5 lifecycle vocabulary and activation semantics). The pre-0.5 reference
@@ -1119,7 +1148,308 @@ A v0.3 host reads v0.2 manifests: missing `publisher` → derived from the
 manifest origin's registrable domain (and flagged as derived); `persona` →
 `prompts`; bare `skills:*` scope → `hermes:skills:*` when the runtime is Hermes.
 
-## 14. Open questions (to resolve before v1.0)
+## 14. Commerce — entitlements (optional)
+
+An extension may be sold. AXP does **not** handle payment: no prices are
+computed, no checkout is run, no money moves through anything this document
+defines. Whoever sells the extension — the publisher, or a marketplace the
+publisher names — collects the money however they like and then signs one
+small document: the **entitlement**, proof that one host may use the
+extension. This section defines that proof, how a host checks it, how a host
+obtains it, and how a publisher who does not want to hand out code before
+payment keeps the artifact behind it. Everything reuses §8: JCS + ed25519 and
+the publisher key directory. A host that verifies manifests verifies
+entitlements with the same code and the same trust root.
+
+Support is an optional **capability** on top of the Trusted profile (§11);
+hosts that lack it ignore `commerce` under §2.4. The consequences of that
+are spelled out honestly in §14.9.
+
+### 14.1 The `commerce` block
+
+```jsonc
+"commerce": {
+  "entitlement": "required",            // required | optional
+  "plans": [                            // display only — a host computes nothing from these
+    { "id": "pro-monthly", "kind": "subscription", "period": "month",
+      "price": { "amount": 500, "currency": "EUR" }, "title": "Pro, monthly" },
+    { "id": "lifetime",    "kind": "one_time", "price": { "amount": 4900, "currency": "EUR" },
+      "updates_months": 12 },
+    { "id": "trial",       "kind": "trial", "days": 14 }
+  ],
+  "checkout_url": "https://ext.example.com/paid-tool/buy",          // §14.5
+  "refresh_url":  "https://api.ext.example.com/axp/entitlements",   // §14.5, optional
+  "issuers":      ["ext.example.com"],                              // default: the publisher
+  "grace_days":   7                                                 // §14.6, default 7
+}
+```
+
+| field | req | meaning |
+|-------|-----|---------|
+| `entitlement` | ✔ | `required`: a commerce-capable host installs and enables the extension only while it holds a valid entitlement. `optional`: the extension installs and runs freely; an entitlement unlocks paid features inside it (the host still offers purchase, import and renewal). |
+| `plans[]` | | What is for sale, for the consent card and catalogues. `id` (slug, what an entitlement's `plan` names), `kind` ∈ `one_time \| subscription \| trial` (an unknown kind is shown as-is and not interpreted, §2.4), `title`, `price` (`amount` in minor units as an integer — JCS forbids floats — and an ISO 4217 `currency`), `period` ∈ `month \| year` (subscription, required), `days` (trial, required), `updates_months` (one-time: how long new releases are covered; absent = all). |
+| `checkout_url` | | https; where a host sends the user to buy (§14.5). |
+| `refresh_url` | | https; the issuer endpoint a host asks for a new or renewed entitlement (§14.5). |
+| `issuers[]` | | DNS names whose key directories may vouch for entitlement keys for this extension (§14.3). Default `[identity.publisher]`. A publisher who lets a marketplace sell for them lists it here. |
+| `grace_days` | | How long past `valid_until` the host keeps the extension running while renewal is attempted (§14.6). Default 7. |
+
+The three plan kinds cover the usual models and their combination: a
+subscription (use and updates for a period, renewed), a one-time purchase
+(use for ever, updates for a window — the "perpetual licence with a year of
+updates" model — or all updates when `updates_months` is absent), and a trial
+(use for a few days). The plan is a label; what the host enforces is the
+entitlement's two dates (§14.2), nothing else.
+
+### 14.2 The entitlement document
+
+```jsonc
+{
+  "kind": "agent-extension-entitlement",
+  "spec_version": "0.5",
+  "extension": "ext.example.com/paid-tool",      // the id it is for
+  "holder": "ed25519:…",                         // the host key it is bound to (§14.4)
+  "plan": "lifetime",
+  "serial": "EX-2026-0001",                      // issuer-unique; renewal and revocation refer to it
+  "issuer": "ext.example.com",                   // whose key directory lists the signing key
+  "issued_at": "2026-10-16T10:00:00Z",
+  "valid_until": null,                           // end of the right to USE; null = perpetual
+  "updates_until": "2027-10-16T10:00:00Z",       // releases published after this are not covered; null = all
+  "signing": { "public_key": "ed25519:…", "key_id": "issuing-2026" },
+  "signature": "…"                               // ed25519 over the JCS document minus `signature`
+}
+```
+
+All fields except `spec_version` and `signing.key_id` are required;
+`valid_until` and `updates_until` are required *as keys* and may be `null`.
+The signature is computed exactly like a manifest's (§8.2): JCS of the
+document with `signature` removed, ed25519, base64. A subscription sets both
+dates to the period end; a one-time purchase sets `valid_until: null` and
+`updates_until` to the end of its window; a trial sets `valid_until` to the
+trial end. Everything else — seats, invoices, customer ids — is the issuer's
+business and MAY ride along as `x-` fields (ignored by hosts, covered by the
+signature).
+
+The schema is [`schema/agent-extension-entitlement.schema.json`](schema/agent-extension-entitlement.schema.json);
+`axp entitlement issue` writes one, `axp.entitlements.issue` is the library call.
+
+### 14.3 Trust: issuers and key roles
+
+An entitlement is trusted when **all** of the following hold:
+
+1. `extension` is the id being installed and `holder` is this host's own
+   key (§14.4).
+2. `issuer` is one of the manifest's `commerce.issuers` (default: the
+   publisher). The manifest is signed and pinned, so a publisher's choice of
+   who may sell for them is as trustworthy as the manifest itself.
+3. `signing.public_key` is listed in the **issuer's** key directory
+   (`https://<issuer>/.well-known/agent-extension-keys.json`, §8.5) with the
+   role `entitlement`, and — if the entry carries `extensions` — for this
+   extension.
+4. `signature` verifies against that key.
+5. The dates allow it (§14.6).
+
+**Key roles.** Key directory entries gain an optional `roles` list:
+
+```jsonc
+{ "public_key": "ed25519:MANIFEST…", "extensions": ["paid-tool"] },                           // no roles = manifest only
+{ "public_key": "ed25519:ISSUING…",  "extensions": ["paid-tool"], "roles": ["entitlement"] }  // signs entitlements only
+```
+
+An entry **without** `roles` is a manifest-signing key and nothing else —
+every existing directory keeps its exact meaning. An entitlement key MUST
+be listed with `roles` containing `entitlement`, and a host MUST NOT accept
+it for anything the `manifest` role governs (rotation, recovery, first-use
+strict mode) unless that role is listed too. This separation is the point:
+the issuing key lives on a server that signs at every purchase, the manifest
+key stays offline. A stolen issuing key can mint entitlements until it is
+revoked in the directory; it can never move a host's pin. Publishers SHOULD
+keep the two roles on two keys. The reference
+`axp.signing.parse_key_directory(…, role=…)` implements the filter and is
+normative.
+
+In a **marketplace's** directory the `extensions` scope may use full ids
+(`"ext.example.com/paid-tool"`), since the extensions it issues for are not
+its own; a bare name always means the directory publisher's own extension.
+
+An unreachable issuer directory follows the §8.5 rule: a host MUST NOT
+guess. For an install it reports the directory as unreachable and retries;
+for the periodic re-check of an entitlement it already accepted it keeps the
+last decision (hosts SHOULD cache the directory alongside the entitlement).
+
+### 14.4 The host key and the presentation; gated delivery
+
+A commerce-capable host holds one ed25519 **host key** per installation
+(`axp keygen`), generated once, never shared. Its public form is the
+`holder` an entitlement is bound to, and it is the host's identity towards
+issuers and artifact servers. One agent, one key: an owner with two agents
+asks the issuer for a second entitlement (or a transfer) — the protocol does
+not copy entitlements between machines.
+
+The host proves possession of that key with a **presentation**: a short-lived
+document, bound to the exact URL it is sent to, signed by the host key, and
+carrying the entitlement when it has one:
+
+```jsonc
+{
+  "kind": "agent-extension-presentation",
+  "spec_version": "0.5",
+  "holder": "ed25519:…",                                   // the host key
+  "extension": "ext.example.com/paid-tool",
+  "audience": "https://ext.example.com/paid-tool-1.0.0.tar.gz",   // the exact URL being requested
+  "issued_at": "…", "expires_at": "…",                      // ≤ 300 s apart
+  "nonce": "…",
+  "entitlement": { … },                                     // absent when asking for one (§14.5)
+  "signature": "…"                                          // by the host key, JCS minus `signature`
+}
+```
+
+It travels as an HTTP request header:
+
+```
+Authorization: AXP-Entitlement <base64url of the JCS presentation, no padding>
+```
+
+A server MUST check, in this order: the scheme; `audience` equals the URL it
+serves, byte for byte; the time window (`expires_at` not past, `issued_at`
+not in the future, lifetime ≤ 300 s, a few minutes of clock skew allowed);
+the presentation signature against `holder`; then — only then — the embedded
+entitlement (§14.3) with the issuer keys *that server* trusts, and that the
+entitlement's `holder` and `extension` are the presentation's. A failed
+presentation is `401`; a good presentation with a missing, invalid or
+expired entitlement is `402`; a valid entitlement that does not cover the
+requested release (§14.7) is `403`. The reference
+`axp.entitlements.verify_presented_entitlement` is that check; `axp
+entitlement inspect` runs it from the command line.
+
+**Gated delivery.** A publisher who will not release code before payment
+marks the target:
+
+```jsonc
+"delivery": { "method": "archive", "url": "https://…/paid-tool-1.0.0.tar.gz", "sha256": "…",
+              "auth": { "scheme": "entitlement" } }
+```
+
+The **manifest stays public** — discovery, the consent card, the strictly-
+higher update rule and the pinned signature all need it, and it contains
+nothing but the description and the digests. Only the **bytes** are gated:
+the host fetches the artifact with the header above (audience = the
+`delivery.url`) and the server releases them only against a valid
+entitlement. The sha256 in the signed manifest still binds the bytes, so a
+gated artifact is verified exactly like a public one. A manifest with an
+entitlement-gated target MUST carry a `commerce` block (a host could not
+otherwise obtain what the server will demand); the reference validator
+refuses one that does not. An unknown `auth.scheme` is ignored (§2.4): the
+host fetches plainly and reports what the server answers. `release.artifact`
+MAY point at the same gated URL; `axp verify --artifact` is unaffected since
+it works on local bytes.
+
+### 14.5 Obtaining an entitlement
+
+A commerce-capable host MUST support **import** — the user hands it the
+entitlement document (a file, a paste); this is the universal fallback and
+the whole of the flow for a publisher who sells by e-mail — and SHOULD
+support the two automated paths below.
+
+**Checkout.** The host opens `commerce.checkout_url` for the user with these
+query parameters appended: `axp_extension` (the id), `axp_holder` (the host
+key, URL-encoded) and, when the host has a place the issuer can return the
+user to, `axp_return`. The issuer binds the purchase to that holder. How the
+purchase is paid for is between the user and the issuer.
+
+**Refresh.** With `commerce.refresh_url` present, the host `POST`s a
+presentation to it (audience = the `refresh_url`): without an entitlement to
+ask for one after a purchase or to claim a trial, with its current
+entitlement to renew it. The issuer verifies the presentation (§14.4), looks
+up what that holder bought, and answers `200` with a fresh entitlement
+document as the JSON body, `402` with a JSON body that MAY carry a
+`checkout_url` when nothing is owed yet to that holder, `403` when the
+presented entitlement was revoked (§14.6), or `404` for an unknown extension.
+A host polls the refresh endpoint after checkout at a gentle cadence (and on
+"I have paid"), and for a subscription starts renewal attempts a few days
+before `valid_until`; once a minute for the first ten minutes after opening
+checkout and daily thereafter is a reasonable shape.
+
+A host that offers a web surface MAY accept the entitlement on `axp_return`
+(`?entitlement=<base64url JSON>`); it MUST still verify it exactly as an
+imported one. In every path the host verifies (§14.3) before it stores, and
+stores verified entitlements in host-owned state keyed by extension id
+(`axp.entitlements.EntitlementStore` is the reference).
+
+### 14.6 Lifetime: validity, grace, disable, revocation
+
+`valid_until` is the end of the right to use. From `issued_at` to
+`valid_until` (inclusive; a few minutes of clock skew tolerated) the
+entitlement is **valid**. For `grace_days` after it the entitlement is in
+**grace**: still accepted, the host SHOULD be renewing (§14.5) and MAY tell
+the user once. After that it is **expired**. A commerce-capable host then:
+
+- for `entitlement: required`, treats the extension as it treats a user's
+  *disable* (§6.5): persists the state, revokes views and routes, stops its
+  managed services, runs the `disable` hook — and keeps the installed files
+  and durable data. It MUST NOT uninstall. A renewed or imported entitlement
+  re-enables it the same way (§6.5 enable).
+- for `entitlement: optional`, removes the entitlement handoff (§14.8) and
+  leaves the extension running; the extension itself decides what is locked.
+
+The user is told once when an entitlement expires and then no more than
+about monthly (the §7.4 cadence) — and *before* it expires when the host
+knows renewal is failing.
+
+**Revocation.** An issuer revokes by `serial`: its `refresh_url` answers
+`403` for a presentation carrying that entitlement, and its artifact server
+refuses it. A host that refreshes periodically therefore learns of a
+revocation (chargeback, abuse) without a revocation list; one that does not
+learns at the next gated download. Revoking the *issuing key* (`revoked:
+true` in the directory) invalidates every entitlement it signed; the issuer
+re-issues under a new key through `refresh_url`.
+
+### 14.7 Updates and `updates_until`
+
+A host applying an update to an extension with `commerce` checks, before it
+downloads, that the candidate's `release.published_at` is not after the
+entitlement's `updates_until` (`axp.entitlements.covers_release`). A release
+that is not covered is **not applied**; the installed version keeps running
+(a perpetual `valid_until`) and the host shows the update with the way to
+extend the entitlement instead of an error. A release without
+`published_at` cannot be placed and counts as covered — the gate a publisher
+controls is the artifact server; a publisher selling update windows stamps
+the date, which `axp release` does. A gated artifact server MUST apply the
+same rule (`403`, §14.4). The consent ratchet (§7.6) and the strictly-higher
+rule (§7.4) are unchanged.
+
+### 14.8 What the extension sees
+
+| variable | set on | meaning |
+|----------|--------|---------|
+| `AXP_ENTITLEMENT_FILE` | all hooks, while an entitlement is held | path to the current entitlement document (JSON, mode 0600, readable by the hooks and by the components the host launches). Unlike `AXP_CONFIG_FILE` it is **stable** for as long as the entitlement is held: the host rewrites it in place on renewal and removes it on expiry, so a running service can re-read it. Unset = no entitlement (free install of an `optional` extension, or a host without this capability). |
+
+An extension that enforces anything itself verifies that file against the
+issuer key it knows (the same five checks as §14.3, with the host's key as
+`holder` taken from the document — it has no other), and MUST keep working
+when the variable is unset on a host that does not implement this section,
+within whatever its `optional`/`required` policy allows. After importing or
+renewing an entitlement the host runs the extension's `enable` hook if it
+declares one (idempotent by §6.5), so a service can pick the change up.
+
+### 14.9 What this is, and is not
+
+An entitlement is a **verifiable receipt**, not copy protection. A publisher
+who ships a public artifact and relies on the host's check has exactly what
+§10 says a hand-run `install.sh` gives: nothing, on a host that opts out or
+predates this section — such a host ignores `commerce` and installs. The
+protections a publisher actually controls are, in order of strength: gated
+delivery (§14.4 — unentitled machines never receive the code), the
+extension's own verification of `AXP_ENTITLEMENT_FILE` (§14.8), and
+server-side components that check the presentation themselves. The host's
+check exists for the **user**: a clear consent card with the price, no
+surprise shutdowns, renewals that just happen, and one place to see what
+they own — and for honest publishers, who get all of that for free.
+
+What AXP defines here is small on purpose: one signed document, one header,
+one key role, two dates. Prices, taxes, invoices, refunds, seats, teams and
+every payment rail stay outside the protocol, where they belong.
+
+## 15. Open questions (to resolve before v1.0)
 
 1. **Multi-signer / m-of-n** and organisational trust anchors — same `signing`
    block or a new one?
@@ -1134,3 +1464,8 @@ manifest origin's registrable domain (and flagged as derived); `persona` →
    the default. A public catalogue exists at <https://axp.cat>: it lists only
    manifests that pass §2–§8 (validator, signature, publisher binding) and is
    a convenience for discovery, never a requirement for installation.
+6. **Entitlement transfer** (§14.4) — moving an entitlement to a new host
+   key (a re-installed agent) is left to the issuer's `refresh_url` today; a
+   standard "transfer" request signed by both host keys would let a host do it
+   without the issuer knowing the user. Also: should a host be allowed to hold
+   several entitlements for one extension (seat + add-on)?

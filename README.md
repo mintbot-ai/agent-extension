@@ -44,6 +44,13 @@ the reference implementation.
    vendor extensions are `x-` namespaced, runtime extras are `<runtime>:`
    namespaced outside those closed vocabularies. Declaring `enable`/`disable`
    requires a 0.5-capable host; older validators reject those hooks.
+8. **Commerce without payments** — an extension may be sold (one-time,
+   subscription, both, trial). AXP defines only the receipt: a signed
+   *entitlement* bound to the host's key, verified against the publisher's
+   key directory with a separate `entitlement` key role, presented in an
+   `Authorization: AXP-Entitlement` header to fetch an artifact the publisher
+   keeps behind payment. No prices computed, no checkout run, no money moved
+   by the protocol — see [`docs/COMMERCE.md`](docs/COMMERCE.md).
 
 ## Layout
 
@@ -51,10 +58,14 @@ the reference implementation.
 - [`schema/agent-extension.schema.json`](schema/agent-extension.schema.json) —
   JSON Schema for manifests;
   [`schema/agent-extension-keys.schema.json`](schema/agent-extension-keys.schema.json)
-  for the publisher key directory (§8.5).
+  for the publisher key directory (§8.5);
+  [`schema/agent-extension-entitlement.schema.json`](schema/agent-extension-entitlement.schema.json)
+  for entitlements (§14).
 - [`docs/HOST-GUIDE.md`](docs/HOST-GUIDE.md) — implementing a host, profile
   by profile, with the package calls that do the work.
 - [`docs/SIGNING.md`](docs/SIGNING.md) — sign, pin, rotate, recover.
+- [`docs/COMMERCE.md`](docs/COMMERCE.md) — selling an extension: issuing
+  entitlements, gating the artifact, checking inside the extension.
 - [`docs/runtimes/`](docs/runtimes/) — runtime profiles (`posix`, `hermes`,
   `openclaw`, `claude-code`). Adding a runtime = adding a profile document.
 - [`examples/sample-memory/`](examples/sample-memory/) — a complete worked
@@ -67,6 +78,10 @@ the reference implementation.
   (`mintbot.ai/graph-memory`), released with `axp release`.
 - [`examples/panel-view/`](examples/panel-view/) — unsigned draft 0.5 declaration
   example with an authenticated loopback service and pin/fullscreen view.
+- [`examples/paid-tool/`](examples/paid-tool/) — a sold extension (§14):
+  signed manifest with a `commerce` block and an entitlement-gated target,
+  a key directory separating the manifest key from the issuing key, and an
+  entitlement issued to the example host key; all keys deliberately public.
 - [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Reference implementation: the `axp` package
@@ -98,6 +113,14 @@ axp validate agent-extension.json
 axp verify agent-extension.json --pinned ed25519:…          # against the pinned key
 axp verify agent-extension.json --keydir agent-extension-keys.json   # listed by the publisher?
 axp target agent-extension.json --runtime hermes --runtime posix --runtime-version hermes=0.20.0
+
+# selling (SPEC 14) — issuer, host and artifact-server side
+axp keydir --publisher ext.example.com --key ed25519:…@my-ext --entitlement-key ed25519:…@my-ext -o agent-extension-keys.json
+axp entitlement issue --key issuing.key --issuer ext.example.com --extension ext.example.com/my-ext \
+    --holder ed25519:HOST… --plan pro --valid-days 31 -o entitlement.json
+axp entitlement verify entitlement.json --manifest agent-extension.json --holder ed25519:HOST…
+axp entitlement present entitlement.json --host-key host.key --audience https://…/my-ext-1.2.0.tar.gz
+axp entitlement inspect "AXP-Entitlement …" --audience https://…/my-ext-1.2.0.tar.gz --keydir agent-extension-keys.json
 ```
 
 Host authors: read [docs/HOST-GUIDE.md](docs/HOST-GUIDE.md) and reuse
@@ -154,8 +177,9 @@ needed to reproduce it.
 ## Status
 
 **Draft v0.5** — v0.3 made the core runtime-neutral, v0.4 hardened trust
-and updates, and v0.5 adds optional isolated panel views and managed-service
-enable/disable hooks. Field
+and updates, and v0.5 adds optional isolated panel views, managed-service
+enable/disable hooks and commerce (signed entitlements, key roles, gated
+artifacts). Field
 names may still change before v1.0; open questions are at the end of
 `SPEC.md`. CI runs the suite on Python 3.10 and 3.13, with and without the
 `cryptography` wheel.

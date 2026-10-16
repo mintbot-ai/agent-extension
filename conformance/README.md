@@ -8,9 +8,16 @@ claiming a profile SHOULD pass the corresponding module:
 | Core      | `test_core.py`    | manifest acceptance/refusal semantics (§2.4 forward-compat, closed security enums), target selection incl. the `posix` fallback (§5) |
 | Panel declarations (0.5) | `test_panel_views.py` | safe service references, loopback origins and paths, unknown capabilities, optional activation hooks |
 | Trusted   | `test_trusted.py` | TOFU pinning, same-key rule, announce → dual-sign rotation, the signed→unsigned ratchet (§8) |
+| Commerce (optional capability) | `test_commerce.py` | entitlement verification as a host runs it (§14): holder and extension binding, issuer and key-role trust, grace and expiry, tamper refusal; the issuing key cannot move a pin; `updates_until` coverage |
 
 (Managed and Sandboxed profiles involve network and systemd side effects and
-are exercised by host-specific integration tests, not here.)
+are exercised by host-specific integration tests, not here. Likewise the
+commerce module checks the decision, not the checkout, refresh or gated
+fetch — those are HTTP and belong to a host's integration tests.)
+
+`test_commerce.py` runs only for adapters that implement the optional
+`verify_entitlement` method (see `adapter.py`); a host that does not sell
+extensions skips it without claiming anything.
 
 `test_panel_views.py` targets validators that understand the 0.5 panel component.
 Older hosts may ignore this component under §2.4 only if the manifest does not

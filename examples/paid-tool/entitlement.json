@@ -1,0 +1,17 @@
+{
+  "kind": "agent-extension-entitlement",
+  "spec_version": "0.5",
+  "extension": "ext.example.com/paid-tool",
+  "holder": "ed25519:lhzN9+JX0a4Iqi25fRO6zisi0IuHPKwgShiVbMAViA0=",
+  "plan": "lifetime",
+  "serial": "EX-2026-0001",
+  "issuer": "ext.example.com",
+  "issued_at": "2026-10-16T10:00:00Z",
+  "valid_until": null,
+  "updates_until": "2027-10-16T10:00:00Z",
+  "signing": {
+    "public_key": "ed25519:Clk99LIQr6WKNyvsiz5zGQtRei7nJL5dpCpMlj8Egos=",
+    "key_id": "example-issuing-2026"
+  },
+  "signature": "eeAQJ67wuPQuugSNm0dO2ORw+buygE562jDWmdwPbMfw3ZGCJ4t5iHvu+6lYbeu9DCtpylWmMmTuDa1whI9/Aw=="
+}

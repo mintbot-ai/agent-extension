@@ -273,6 +273,44 @@
     "signature": { "type": "string", "description": "base64 ed25519 signature over the canonical (JCS) manifest with signature/signature_prev removed." },
     "signature_prev": { "type": "string", "description": "Present only on a key-rotation release: signature by the old pinned key." },
 
+    "commerce": {
+      "type": "object",
+      "description": "Optional (SPEC 14): the extension is sold. AXP defines only the proof of purchase (a signed entitlement) and how a host checks it, never the payment. Plans are shown to the user, never computed with.",
+      "required": ["entitlement"],
+      "additionalProperties": true,
+      "properties": {
+        "entitlement": { "type": "string", "enum": ["required", "optional"], "description": "required = a host installs or enables only with a valid entitlement; optional = installs freely, an entitlement unlocks paid features inside the extension" },
+        "plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "description": "what an entitlement's plan field names" },
+              "kind": { "type": "string", "description": "one_time | subscription | trial; an unknown kind is shown as-is and not interpreted (2.4)" },
+              "title": { "type": "string" },
+              "price": {
+                "type": "object",
+                "required": ["amount", "currency"],
+                "properties": {
+                  "amount": { "type": "integer", "minimum": 0, "description": "minor units (500 = 5.00); JCS forbids floats" },
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217" }
+                }
+              },
+              "period": { "type": "string", "enum": ["month", "year"], "description": "subscription only (required there)" },
+              "days": { "type": "integer", "minimum": 1, "description": "trial only (required there)" },
+              "updates_months": { "type": "integer", "minimum": 0, "description": "one_time: how long new releases are covered (updates_until); absent = all updates" }
+            }
+          }
+        },
+        "checkout_url": { "$ref": "#/$defs/httpsUrl", "description": "where a host sends the user to buy; the host appends axp_extension, axp_holder and optionally axp_return (14.5)" },
+        "refresh_url": { "$ref": "#/$defs/httpsUrl", "description": "issuer endpoint a host POSTs a presentation to for a new or renewed entitlement (14.5)" },
+        "issuers": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$" }, "description": "DNS names whose key directories (role entitlement) may sign entitlements for this extension; default: the publisher" },
+        "grace_days": { "type": "integer", "minimum": 0, "description": "days past valid_until a host keeps the extension running while renewing (default 7)" }
+      }
+    },
+
     "targets": {
       "type": "array",
       "minItems": 1,
@@ -289,7 +327,15 @@
             "type": "object",
             "required": ["method"],
             "additionalProperties": true,
-            "properties": { "method": { "type": "string" } },
+            "properties": {
+              "method": { "type": "string" },
+              "auth": {
+                "type": "object",
+                "required": ["scheme"],
+                "description": "How the host authenticates the artifact fetch (SPEC 14.4). scheme entitlement = the artifact is released only against a presented entitlement (needs a commerce block); an unknown scheme is ignored (2.4).",
+                "properties": { "scheme": { "type": "string" } }
+              }
+            },
             "allOf": [
               {
                 "if": { "properties": { "method": { "const": "archive" } } },

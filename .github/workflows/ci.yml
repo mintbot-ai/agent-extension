@@ -37,6 +37,13 @@ jobs:
           axp validate examples/sample-memory/agent-extension.json > /dev/null
           axp verify examples/sample-memory/agent-extension.json --keydir examples/sample-memory/agent-extension-keys.json
           axp target examples/sample-memory/agent-extension.json --runtime hermes --runtime posix --platform linux/amd64 --runtime-version hermes=0.20.0 > /dev/null
+      - name: Commerce example round-trips through the CLI (SPEC 14)
+        run: |
+          axp validate examples/paid-tool/agent-extension.json > /dev/null
+          axp verify examples/paid-tool/agent-extension.json --keydir examples/paid-tool/agent-extension-keys.json
+          axp entitlement verify examples/paid-tool/entitlement.json --manifest examples/paid-tool/agent-extension.json --keydir examples/paid-tool/agent-extension-keys.json > /dev/null
+          axp entitlement present examples/paid-tool/entitlement.json --host-key examples/paid-tool/example-host.key --audience https://ext.example.com/paid-tool-1.0.0.tar.gz --value-only > token
+          axp entitlement inspect @token --audience https://ext.example.com/paid-tool-1.0.0.tar.gz --manifest examples/paid-tool/agent-extension.json --keydir examples/paid-tool/agent-extension-keys.json > /dev/null
 
   schema:
     name: schema validates the example
@@ -51,7 +58,10 @@ jobs:
           python - <<'PY'
           import json, jsonschema
           for schema, doc in (("schema/agent-extension.schema.json", "examples/sample-memory/agent-extension.json"),
-                              ("schema/agent-extension-keys.schema.json", "examples/sample-memory/agent-extension-keys.json")):
+                              ("schema/agent-extension-keys.schema.json", "examples/sample-memory/agent-extension-keys.json"),
+                              ("schema/agent-extension.schema.json", "examples/paid-tool/agent-extension.json"),
+                              ("schema/agent-extension-keys.schema.json", "examples/paid-tool/agent-extension-keys.json"),
+                              ("schema/agent-extension-entitlement.schema.json", "examples/paid-tool/entitlement.json")):
               s = json.load(open(schema)); jsonschema.Draft202012Validator.check_schema(s)
               jsonschema.validate(json.load(open(doc)), s); print("ok", doc)
           PY

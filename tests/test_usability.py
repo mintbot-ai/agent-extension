@@ -78,9 +78,12 @@ def test_check_distinguishes_valid_draft_and_has_actionable_diagnostics(tmp_path
                for d in report["diagnostics"])
 
 
-def test_check_signed_archive_content_and_runtime_without_execution(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("openssl_only", [False, True])
+def test_check_signed_archive_content_and_runtime_without_execution(tmp_path, capsys, monkeypatch, openssl_only):
     import tarfile
     from axp import publish, signing
+    if openssl_only:
+        monkeypatch.setattr(signing, "HAVE_CRYPTOGRAPHY", False)
     assert scaffold(tmp_path) == 0
     path = tmp_path / "agent-extension.json"
     archive = tmp_path / "package.tar.gz"
@@ -94,8 +97,19 @@ def test_check_signed_archive_content_and_runtime_without_execution(tmp_path, ca
     path.write_text(json.dumps(data))
     capsys.readouterr()
     def forbidden(*args, **kwargs):
-        raise AssertionError("check must not execute or fetch")
-    monkeypatch.setattr(subprocess, "run", forbidden)
+        raise AssertionError("check must not execute package code or fetch")
+
+    real_run = subprocess.run
+    openssl = signing._openssl()
+
+    def verification_only(command, *args, **kwargs):
+        # The fixed OpenSSL verification backend is permitted; package code is not.
+        assert isinstance(command, list)
+        assert command[:6] == [openssl, "pkeyutl", "-verify", "-pubin", "-keyform", "DER"]
+        assert not kwargs.get("shell")
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", verification_only)
     monkeypatch.setattr("axp.repository.http_fetch", forbidden)
     args = ["check", str(path), "--artifact", str(archive), "--format", "json"]
     assert cli.main(args) == 0

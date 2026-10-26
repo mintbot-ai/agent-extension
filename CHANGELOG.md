@@ -2,6 +2,22 @@
 
 ## unreleased — draft 0.5
 
+- Add opt-in `axp init --template skill|cli|mcp|service`: runnable minimal POSIX
+  projects, explicit local package allowlists and `axp.toml`; manifest-only init
+  remains unchanged. Preflight scaffold collisions; refuse symlink destinations.
+- Add offline `axp check`: separate structural validity, draft and local static
+  publish readiness; inspect declared files, tar.gz/ZIP contents and hashes,
+  placeholders, runtime declarations and signatures without executing package
+  code or making network requests. Stable code/field/message/remedy diagnostics;
+  optional compact/JSON reports for check and validate, preserving validate defaults.
+- Add deterministic local `axp pack`, conservative path/secret/archive guards,
+  and project artifact/signing-key PATH defaults with CLI overrides. Reuse the
+  existing release pipeline; derive only an absent signing public key, never
+  replace a mismatched declaration. Guard release output collisions and key/artifact
+  clobbers. No implicit build, install, upload or publication. Document the local
+  workflow and add CLI smoke coverage for all templates through pack/release/check.
+  Python 3.10 uses conditional `tomli`; no protocol schema changes.
+
 - Fail closed on malformed key-directory extension scopes and roles, including
   explicit null and mixed valid/invalid arrays. Preserve absent-field defaults
   and schema-compatible future role strings. Add schema parity and raw-directory

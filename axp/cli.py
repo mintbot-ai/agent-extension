@@ -42,7 +42,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import __version__, entitlements, jcs, manifest, publish, repository, signing
+from . import __version__, entitlements, jcs, manifest, publish, repository, signing, templates, readiness
+from . import project, package
 
 
 def _read_key(path: str | None) -> bytes | None:
@@ -65,6 +66,13 @@ def _load(path: str) -> dict:
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
+    if args.format != "legacy":
+        try:
+            report = readiness.structural(_load(args.manifest), origin=args.origin)
+        except (SystemExit, UnicodeError) as exc:
+            report = _input_report(exc)
+        readiness.render(report, args.format)
+        return 0 if report["structurally_valid"] else 1
     data = _load(args.manifest)
     try:
         summary = manifest.validate(data, origin=args.origin)
@@ -73,6 +81,26 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps(summary, indent=2))
     return 0
+
+
+def _input_report(exc: BaseException) -> dict:
+    return dict(status="invalid", structurally_valid=False, diagnostics=[readiness.diagnostic(
+        "AXP_INPUT_INVALID", "input", str(exc), "Supply a readable JSON object and existing local artifact paths.")])
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    try:
+        root, config = project.load(args.manifest, args.config)
+        artifact_args = args.artifact
+        if not artifact_args and config.get("artifact"):
+            default = project.path_default(root, config, "artifact")
+            artifact_args = [default] if Path(default).is_file() else []
+        report = readiness.check(_load(args.manifest), root=Path(args.manifest).parent,
+                                 artifacts=publish.parse_artifact_args(artifact_args or []), runtimes=args.runtime)
+    except (SystemExit, OSError, ValueError) as exc:
+        report = _input_report(exc)
+    readiness.render(report, args.format)
+    return 0 if report["status"] == "publish_ready" else 1
 
 
 def _cmd_canonicalize(args: argparse.Namespace) -> int:
@@ -100,20 +128,35 @@ def _cmd_keygen(args: argparse.Namespace) -> int:
 def _cmd_sign(args: argparse.Namespace) -> int:
     data = _load(args.manifest)
     try:
+        target = args.manifest if args.in_place else args.output
+        if target and any(p.is_symlink() for p in (Path(target), *Path(target).parents)):
+            raise publish.PublishError("Refusing symlink signing destination.")
+        if args.output and Path(args.output).exists():
+            raise publish.PublishError("Signing output already exists; choose a new path or use --in-place on the manifest.")
+        root, config = project.load(args.manifest, args.config)
+        key = args.key or project.path_default(root, config, "signing_key")
+        if not key:
+            raise publish.PublishError("Pass --key PATH or set project.signing_key in axp.toml.")
+        pem = Path(key).read_bytes()
+        if not data.get("signing"):
+            data["signing"] = {"public_key": signing.public_key_from_private(pem)}
         # Sign first, validate the signed result: the input is legitimately
         # "invalid" until the signature exists, but nothing broken may be
         # published, so validation gates the write.
         signed = signing.sign_manifest(
-            data, Path(args.key).read_bytes(), prev_private_key_pem=_read_key(args.prev_key),
+            data, pem, prev_private_key_pem=_read_key(args.prev_key),
         )
         manifest.validate(signed, origin=args.origin)
-    except (manifest.ManifestError, signing.SigningError) as exc:
+        text = json.dumps(signed, indent=2, ensure_ascii=False) + "\n"
+        if target:
+            Path(target).write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"axp: {exc}. Remedy: check destination parents, permissions and available disk space.", file=sys.stderr)
+        return 1
+    except (manifest.ManifestError, signing.SigningError, publish.PublishError) as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
-    text = json.dumps(signed, indent=2, ensure_ascii=False) + "\n"
-    target = args.manifest if args.in_place else args.output
     if target:
-        Path(target).write_text(text, encoding="utf-8")
         print(f"signed: {target}")
     else:
         sys.stdout.write(text)
@@ -136,41 +179,80 @@ def _cmd_init(args: argparse.Namespace) -> int:
             base_url=args.base_url,
         )
         manifest.validate(data)
+        if args.template:
+            templates.write(out_dir, templates.files(data, args.template), force=args.force)
+            print(f"created: {manifest_path} (draft {args.template} project; next: axp check, axp pack)")
+            return 0
+        out_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"axp: {exc}. Remedy: check destination parents, permissions and available disk space.", file=sys.stderr)
+        return 1
     except (publish.PublishError, manifest.ManifestError) as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
-    out_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"created: {manifest_path}")
+    return 0
+
+
+def _cmd_pack(args: argparse.Namespace) -> int:
+    try:
+        root, config = project.load(args.manifest, args.config)
+        output = args.output or project.path_default(root, config, "artifact")
+        if not output:
+            raise publish.PublishError("Set project.artifact in axp.toml or pass --output PATH.")
+        names = package.pack(root, args.file or config.get("files", []), Path(output), force=args.force,
+                             signing_key=Path(project.path_default(root, config, "signing_key")) if config.get("signing_key") else None)
+    except (OSError, ValueError) as exc:
+        print(f"axp: {exc}", file=sys.stderr)
+        return 1
+    print(f"packed {len(names)} files: {output}; next: axp release {args.manifest} --key PATH (local only)")
     return 0
 
 
 def _cmd_release(args: argparse.Namespace) -> int:
     data = _load(args.manifest)
     try:
+        target = Path(args.output or args.manifest)
+        if any(p.is_symlink() for p in (target, *target.parents)):
+            raise publish.PublishError("Refusing symlink release destination.")
+        if args.output and target.exists() and not args.force:
+            raise publish.PublishError(f"{target} already exists (use --force to overwrite)")
+        root, config = project.load(args.manifest, args.config)
+        artifact_args = args.artifact or ([project.path_default(root, config, "artifact")] if config.get("artifact") else [])
+        key = args.key or project.path_default(root, config, "signing_key")
+        artifacts = publish.parse_artifact_args(artifact_args)
+        protected = [*artifacts.values(), *[Path(p) for p in (key, args.prev_key) if p]]
+        if any(target.resolve() == p.resolve() or (target.exists() and p.exists() and target.samefile(p)) for p in protected):
+            raise publish.PublishError("Release destination must not overwrite an artifact or signing key.")
         released = publish.prepare_release(
             data,
-            artifacts=publish.parse_artifact_args(args.artifact),
+            artifacts=artifacts,
             version=args.set_version,
             bump=args.bump,
             channel=args.channel,
             valid_days=args.valid_days,
         )
-        if args.key:
+        if key:
+            pem = Path(key).read_bytes()
+            if not released.get("signing"):
+                released["signing"] = {"public_key": signing.public_key_from_private(pem)}
             released = signing.sign_manifest(
-                released, Path(args.key).read_bytes(), prev_private_key_pem=_read_key(args.prev_key),
+                released, pem, prev_private_key_pem=_read_key(args.prev_key),
             )
         elif args.prev_key:
             print("axp: --prev-key needs --key (the new key signs, the old one countersigns)", file=sys.stderr)
             return 2
         manifest.validate(released)
+        target.write_text(json.dumps(released, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"axp: {exc}. Remedy: check destination parents, permissions and available disk space.", file=sys.stderr)
+        return 1
     except (publish.PublishError, manifest.ManifestError, signing.SigningError) as exc:
         print(f"axp: {exc}", file=sys.stderr)
         return 1
-    if not args.key:
+    if not key:
         print("warning: release is UNSIGNED (pass --key to sign)", file=sys.stderr)
-    target = args.output or args.manifest
-    Path(target).write_text(json.dumps(released, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"released {released['identity']['version']}: {target}")
     return 0
 
@@ -564,8 +646,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"axp {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p = sub.add_parser("check", help="offline static publish readiness (never executes package code)")
+    p.add_argument("manifest", nargs="?", default="agent-extension.json")
+    p.add_argument("--config", help="local axp.toml (default: beside manifest)")
+    p.add_argument("--artifact", action="append", metavar="[RUNTIME=]PATH")
+    p.add_argument("--runtime", action="append", help="require a matching runtime (repeatable)")
+    p.add_argument("--format", choices=["text", "compact", "json"], default="text")
+    p.set_defaults(func=_cmd_check)
+
     p = sub.add_parser("validate", help="structurally validate a manifest")
     p.add_argument("manifest")
+    p.add_argument("--format", choices=["legacy", "compact", "json"], default="legacy")
     p.add_argument("--origin", help="domain the manifest was fetched from (derives a missing v0.2 publisher)")
     p.set_defaults(func=_cmd_validate)
 
@@ -584,12 +675,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", default=".", help="directory to write agent-extension.json into")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=_cmd_init)
+    p.add_argument("--template", choices=templates.KINDS, help="create a runnable local example project")
 
-    p = sub.add_parser("release", help="bump version, fill artifact digests, stamp dates, sign")
+    p = sub.add_parser("pack", help="pack an explicit local file list; never runs a build or publishes")
+    p.add_argument("manifest", nargs="?", default="agent-extension.json")
+    p.add_argument("--config", help="local axp.toml (default: beside manifest)")
+    p.add_argument("--file", action="append", help="explicit relative file/directory (repeatable; overrides project.files)")
+    p.add_argument("-o", "--output", help="tar.gz destination (overrides project.artifact)")
+    p.add_argument("--force", action="store_true", help="replace an existing archive")
+    p.set_defaults(func=_cmd_pack)
+
+    p = sub.add_parser("release", help="locally bump, hash, date and sign; never uploads or runs builds")
     p.add_argument("manifest")
-    p.add_argument("--artifact", action="append", required=True, metavar="[RUNTIME=]PATH",
+    p.add_argument("--config", help="local axp.toml (default: beside manifest)")
+    p.add_argument("--artifact", action="append", metavar="[RUNTIME=]PATH",
                    help="artifact file; bare PATH is the default for every archive target, "
                         "RUNTIME=PATH overrides one runtime (repeatable)")
+    p.add_argument("--force", action="store_true", help="allow replacing an existing --output file")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--version", dest="set_version", help="explicit new semver")
     group.add_argument("--bump", choices=["major", "minor", "patch"])
@@ -609,7 +711,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("sign", help="validate + sign a manifest")
     p.add_argument("manifest")
-    p.add_argument("--key", required=True, help="private key PEM from `axp keygen`")
+    p.add_argument("--config", help="local axp.toml (default: beside manifest)")
+    p.add_argument("--key", help="private key PEM path (overrides project.signing_key)")
     p.add_argument("--prev-key", help="the OLD key for a rotation release (SPEC 8.3): adds signature_prev")
     p.add_argument("--origin", help="as in validate")
     group = p.add_mutually_exclusive_group()

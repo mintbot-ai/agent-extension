@@ -70,6 +70,33 @@ Core ──► Trusted ──► Managed ──► Sandboxed
 
 Conformance: `pytest conformance/test_core.py` with your adapter.
 
+## Report installation and readiness separately
+
+An install hook exiting successfully proves installation completed, not that the
+capability is usable. As a host UX convention (not new manifest fields or a new
+conformance requirement), return installation success separately from a readiness
+assessment after installation and on an already-installed request:
+
+- Check required configuration using host-verifiable bindings. Report confirmed
+  missing names, never values. A declaration alone does not prove absence:
+  bindings the host cannot inspect remain `unknown`, not `needs_configuration`.
+- Check runtime registration against the intended component, not merely an
+  occupied registry key. Authenticated endpoints also need a usable credential
+  binding in the runtime; a token file alone is insufficient.
+- Reuse bounded service probes and the retained, consented health hook under the
+  existing containment rules. Missing or failed checks never count as success.
+- Keep assessment observational: do not reinstall, restart services, rewrite
+  registration or repair credentials as a side effect. A health hook is still
+  publisher code and must retain its existing timeout and sandbox.
+- Present a concise status and next action. For example: `ready`,
+  `needs_configuration`, `unhealthy`, `disabled`, or `unknown`. Keep detailed
+  categorical checks available without copying raw publisher output, exception
+  text or denied request URLs, which can contain secrets.
+
+Host readiness is distinct from the CLI's offline `axp check`: the latter tests
+local release inputs, not a running installation. Neither is a general security
+certification. Preserve existing response fields when adding these host results.
+
 ## Optional panel views (AXP 0.5)
 
 Upgrade whole-manifest validation and activation handling to 0.5 before

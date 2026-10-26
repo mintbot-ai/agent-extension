@@ -66,6 +66,8 @@ the reference implementation.
 - [`docs/HOST-GUIDE.md`](docs/HOST-GUIDE.md) — implementing a host, profile
   by profile, with the package calls that do the work.
 - [`docs/SIGNING.md`](docs/SIGNING.md) — sign, pin, rotate, recover.
+- [`docs/PUBLISHER-WORKFLOW.md`](docs/PUBLISHER-WORKFLOW.md) — runnable templates,
+  offline readiness, safe local packing, project defaults and diagnostic codes.
 - [`docs/COMMERCE.md`](docs/COMMERCE.md) — selling an extension: issuing
   entitlements, gating the artifact, checking inside the extension.
 - [`docs/runtimes/`](docs/runtimes/) — runtime profiles (`posix`, `hermes`,
@@ -90,13 +92,14 @@ the reference implementation.
 
 This repo ships a runtime-neutral Python reference implementation —
 validation, JCS canonicalization, ed25519 signing with TOFU pinning, target
-selection — plus the `axp` CLI. No hard dependencies: signing uses the
-`cryptography` package when importable and falls back to the `openssl` CLI.
+selection — plus the `axp` CLI. Signing uses the optional `cryptography`
+package when importable and falls back to the `openssl` CLI. Python 3.10 also
+installs `tomli` for project configuration; newer Python uses its standard library.
 
 ```bash
 pip install -e .            # or: pip install -e .[dev] for tests
 
-# publisher side — a release is three commands
+# publisher side — legacy manifest-only scaffold (supply your own package files)
 axp init --publisher ext.example.com --name my-ext --description "…"
 axp keygen --out signing.key            # prints the ed25519:… public form
 axp release agent-extension.json --bump patch \
@@ -130,6 +133,27 @@ Host authors: read [docs/HOST-GUIDE.md](docs/HOST-GUIDE.md) and reuse
 `select_target`, `axp.repository.resolve` (the §3.1 repository walk behind
 your own HTTP client), and the `axp.updates` / `axp.versions` rules instead of
 reimplementing them — the conformance suite then covers your host too.
+
+### Runnable projects and local readiness
+
+```sh
+axp init --template skill --publisher extensions.your-domain.com \
+  --name hello --description "A greeting skill" --dir hello
+cd hello
+axp check                         # draft: expected exit 1 before packing/signing
+axp pack                          # explicit allowlist from generated axp.toml
+axp keygen --out ../hello-signing.key
+axp release agent-extension.json --key ../hello-signing.key
+axp check --format json           # local static readiness, not remote certification
+```
+
+Templates: `skill`, `cli`, `mcp`, `service`. Omitting `--template` preserves
+legacy init. `axp.toml` can supply artifact and signing-key **path** defaults;
+CLI flags override them. No build commands are executed and nothing is uploaded.
+`validate` means structurally valid; `check` distinguishes a draft from a locally
+publish-ready package and provides actionable diagnostic codes. Full limits,
+security guards, config precedence and manual upload steps are in the
+[publisher workflow](docs/PUBLISHER-WORKFLOW.md).
 
 ## Conformance
 
